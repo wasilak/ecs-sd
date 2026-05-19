@@ -20,6 +20,8 @@
 
 ## Phase 1: Core Discovery & HTTP API
 
+**Status:** ✓ Complete (2026-05-19)
+
 **Goal:** ECS task discovery working and HTTP endpoints serving valid Prometheus SD format
 
 **Requirements:**
@@ -219,7 +221,7 @@
 
 | Phase | Status | Requirements Complete | Plans Created |
 |-------|--------|----------------------|---------------|
-| 1 | ○ Not Started | 0/10 | 0/? |
+| 1 | ✓ Complete | 10/10 | 3/3 |
 | 2 | ○ Not Started | 0/16 | 0/? |
 | 3 | ○ Not Started | 0/12 | 0/? |
 | 4 | ○ Not Started | 0/4 | 0/? |
