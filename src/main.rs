@@ -9,7 +9,7 @@ mod handlers;
 use axum::Router;
 use std::net::SocketAddr;
 use tokio::signal;
-use tracing::{info, error};
+use tracing::info;
 
 use crate::config::Config;
 use crate::state::AppState;
