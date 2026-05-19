@@ -8,6 +8,9 @@ pub enum DiscoveryError {
     #[error("AWS EC2 API error: {0}")]
     Ec2Error(String),
 
+    #[error("AWS STS API error: {0}")]
+    StsError(String),
+
     #[error("Cluster not found: {0}")]
     ClusterNotFound(String),
 

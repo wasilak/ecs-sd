@@ -7,6 +7,8 @@ edition = "2024"
 aws-config = "1.8.16"
 aws-sdk-ecs = "1.124.0"
 aws-sdk-ec2 = "1.0"
+aws-sdk-sts = "1.103"
+strum = { version = "0.28", features = ["derive"] }
 tokio = { version = "1.52.2", features = ["full"] }
 axum = "0.7"
 tower = "0.4"
