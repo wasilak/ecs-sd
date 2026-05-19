@@ -1,9 +1,11 @@
+use crate::models::MetadataLevel;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub clusters: Vec<String>,
     pub listen: String,
     pub refresh_interval: u64,
-    pub metadata_level: String,
+    pub metadata_level: MetadataLevel,
 }
 
 impl Default for Config {
@@ -12,7 +14,7 @@ impl Default for Config {
             clusters: Vec::new(),
             listen: "0.0.0.0:8080".to_string(),
             refresh_interval: 60,
-            metadata_level: "task".to_string(),
+            metadata_level: MetadataLevel::default(),
         }
     }
 }

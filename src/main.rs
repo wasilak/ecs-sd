@@ -7,11 +7,13 @@ mod routes;
 mod handlers;
 
 use axum::Router;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use tokio::signal;
 use tracing::info;
 
 use crate::config::Config;
+use crate::models::{MetadataLevel, Target};
 use crate::state::AppState;
 
 #[tokio::main]
@@ -51,14 +53,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     })?;
 
-    // Perform initial discovery
+    // Perform initial discovery to populate all cache tiers
     info!("Performing initial discovery...");
-    let targets = state.discovery.discover_all_clusters(&config.clusters).await;
+    let targets_aws = state.discovery.discover_all_clusters(&config.clusters).await;
+    
+    // Derive all cache tiers from Aws-level targets
+    let targets_cluster: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
+        .collect();
+    let targets_service: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Service))
+        .collect();
+    let targets_task: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Task))
+        .collect();
+    let targets_container: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Container))
+        .collect();
 
-    // Write to cache
+    // Populate cache
     {
         let mut cache = state.cache.write().await;
-        *cache = targets;
+        cache.insert(MetadataLevel::Aws, targets_aws);
+        cache.insert(MetadataLevel::Cluster, targets_cluster);
+        cache.insert(MetadataLevel::Service, targets_service);
+        cache.insert(MetadataLevel::Task, targets_task);
+        cache.insert(MetadataLevel::Container, targets_container);
     }
 
     info!("Initial discovery complete");
@@ -80,6 +104,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Server shut down gracefully");
     Ok(())
+}
+
+/// Filter target labels to only include those for the specified level
+fn filter_labels_by_level(target: &Target, level: MetadataLevel) -> Target {
+    let filtered_labels: HashMap<String, String> = target
+        .labels
+        .iter()
+        .filter(|(key, _)| {
+            // Determine which level this label belongs to based on prefix
+            let label_level = if key.starts_with("__meta_ecs_container_") || *key == "__meta_ecs_metrics_port" {
+                MetadataLevel::Container
+            } else if key.starts_with("__meta_ecs_task_") {
+                MetadataLevel::Task
+            } else if key.starts_with("__meta_ecs_service_") {
+                MetadataLevel::Service
+            } else if key.starts_with("__meta_ecs_cluster_") {
+                MetadataLevel::Cluster
+            } else if key.starts_with("__meta_ecs_") {
+                MetadataLevel::Aws
+            } else {
+                MetadataLevel::Container // Default for unknown labels
+            };
+            
+            level.includes(label_level)
+        })
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    
+    Target {
+        targets: target.targets.clone(),
+        labels: filtered_labels,
+    }
 }
 
 async fn shutdown_signal() {
