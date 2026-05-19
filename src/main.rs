@@ -32,6 +32,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create shared state
     let state = AppState::new(config.clone(), ecs_client, ec2_client);
 
+    // Perform initial discovery
+    info!("Performing initial discovery...");
+    let targets = state.discovery.discover_all_clusters(&config.clusters).await;
+
+    // Write to cache
+    {
+        let mut cache = state.cache.write().await;
+        *cache = targets;
+    }
+
+    info!("Initial discovery complete");
+
     // Build router
     let app = Router::new()
         .merge(routes::create_routes())
