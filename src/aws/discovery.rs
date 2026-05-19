@@ -1,6 +1,7 @@
 use crate::error::DiscoveryError;
-use crate::models::Target;
+use crate::models::{LabelBuilder, MetadataLevel, Target};
 use aws_sdk_ecs::types::LaunchType;
+use aws_sdk_sts::Client as StsClient;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
@@ -8,14 +9,37 @@ use tracing::{debug, error, info, warn};
 pub struct DiscoveryService {
     ecs_client: aws_sdk_ecs::Client,
     ec2_client: aws_sdk_ec2::Client,
+    sts_client: StsClient,
+    account_id: String,
+    region: String,
 }
 
 impl DiscoveryService {
-    pub fn new(ecs_client: aws_sdk_ecs::Client, ec2_client: aws_sdk_ec2::Client) -> Self {
-        Self {
+    pub async fn new(
+        ecs_client: aws_sdk_ecs::Client,
+        ec2_client: aws_sdk_ec2::Client,
+        sts_client: StsClient,
+        region: String,
+    ) -> Result<Self, DiscoveryError> {
+        // Get account ID from STS
+        let caller_identity = sts_client
+            .get_caller_identity()
+            .send()
+            .await
+            .map_err(|e| DiscoveryError::StsError(e.to_string()))?;
+
+        let account_id = caller_identity
+            .account()
+            .ok_or_else(|| DiscoveryError::StsError("No account ID in response".to_string()))?
+            .to_string();
+
+        Ok(Self {
             ecs_client,
             ec2_client,
-        }
+            sts_client,
+            account_id,
+            region,
+        })
     }
 
     pub async fn discover_all_clusters(
@@ -174,14 +198,19 @@ impl DiscoveryService {
 
                                 // 8. Resolve target address
                                 match self.resolve_target_address(container_instance_arn, port).await {
-                                    Ok(address) => {
-                                        let target = Target::new(address)
-                                            .with_label("__meta_ecs_cluster_name", cluster_name)
-                                            .with_label("__meta_ecs_service_name", service_name)
-                                            .with_label(
-                                                "__meta_ecs_task_family",
-                                                task_def.family().unwrap_or("unknown"),
-                                            );
+                                    Ok((address, availability_zone)) => {
+                                        let labels = LabelBuilder::new(MetadataLevel::Aws)
+                                            .with_container(container_def, port)
+                                            .with_task(task, &task_def)
+                                            .with_service(service)
+                                            .with_cluster(cluster)
+                                            .with_aws(&self.region, &self.account_id, availability_zone.as_deref())
+                                            .build();
+
+                                        let target = Target {
+                                            targets: vec![address],
+                                            labels,
+                                        };
 
                                         targets.push(target);
                                     }
@@ -270,7 +299,7 @@ impl DiscoveryService {
         &self,
         container_instance_arn: &str,
         port: u16,
-    ) -> Result<String, DiscoveryError> {
+    ) -> Result<(String, Option<String>), DiscoveryError> {
         // Extract cluster from container instance ARN
         // ARN format: arn:aws:ecs:region:account:container-instance/cluster-name/container-instance-id
         let cluster_name = container_instance_arn
@@ -309,7 +338,16 @@ impl DiscoveryService {
             .and_then(|r| r.instances().first())
             .and_then(|i| i.private_ip_address())
             .ok_or(DiscoveryError::NoPrivateIp)?;
+        
+        // Extract availability zone
+        let availability_zone = instances
+            .reservations()
+            .first()
+            .and_then(|r| r.instances().first())
+            .and_then(|i| i.placement())
+            .and_then(|p| p.availability_zone())
+            .map(|s| s.to_string());
 
-        Ok(format!("{}:{}", private_ip, port))
+        Ok((format!("{}:{}", private_ip, port), availability_zone))
     }
 }

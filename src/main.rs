@@ -28,9 +28,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create AWS clients
     let (ecs_client, ec2_client) = aws::client::create_clients().await?;
+    let sts_client = aws::client::create_sts_client().await;
+    
+    // Extract region from SDK config
+    let sdk_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let region = sdk_config
+        .region()
+        .map(|r| r.to_string())
+        .unwrap_or_else(|| "us-east-1".to_string());
 
     // Create shared state
-    let state = AppState::new(config.clone(), ecs_client, ec2_client);
+    let state = AppState::new(
+        config.clone(),
+        ecs_client,
+        ec2_client,
+        sts_client,
+        region,
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Failed to initialize discovery service: {}", e);
+        std::process::exit(1);
+    })?;
 
     // Perform initial discovery
     info!("Performing initial discovery...");

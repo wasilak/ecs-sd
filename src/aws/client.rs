@@ -13,3 +13,8 @@ pub async fn create_clients() -> Result<(aws_sdk_ecs::Client, aws_sdk_ec2::Clien
 
     Ok((ecs_client, ec2_client))
 }
+
+pub async fn create_sts_client() -> aws_sdk_sts::Client {
+    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    aws_sdk_sts::Client::new(&config)
+}
