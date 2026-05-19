@@ -3,10 +3,10 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum DiscoveryError {
     #[error("AWS ECS API error: {0}")]
-    EcsError(#[from] aws_sdk_ecs::Error),
+    EcsError(String),
 
     #[error("AWS EC2 API error: {0}")]
-    Ec2Error(#[from] aws_sdk_ec2::Error),
+    Ec2Error(String),
 
     #[error("Cluster not found: {0}")]
     ClusterNotFound(String),

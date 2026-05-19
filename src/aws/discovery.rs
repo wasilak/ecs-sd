@@ -4,6 +4,7 @@ use aws_sdk_ecs::types::LaunchType;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
+#[derive(Clone)]
 pub struct DiscoveryService {
     ecs_client: aws_sdk_ecs::Client,
     ec2_client: aws_sdk_ec2::Client,
@@ -58,7 +59,8 @@ impl DiscoveryService {
             .describe_clusters()
             .set_clusters(Some(vec![cluster_name.to_string()]))
             .send()
-            .await?;
+            .await
+            .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
 
         if clusters.clusters().is_empty() {
             return Err(DiscoveryError::ClusterNotFound(cluster_name.to_string()));
@@ -84,7 +86,8 @@ impl DiscoveryService {
                 .cluster(cluster_arn)
                 .set_services(Some(service_arn_chunk.to_vec()))
                 .send()
-                .await?;
+                .await
+                .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
 
             for service in services.services() {
                 let service_name = service.service_name().unwrap_or("unknown");
@@ -104,7 +107,8 @@ impl DiscoveryService {
                         .cluster(cluster_arn)
                         .set_tasks(Some(task_chunk.to_vec()))
                         .send()
-                        .await?;
+                        .await
+                        .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
 
                     for task in tasks.tasks() {
                         // Skip non-EC2 launch type
@@ -130,7 +134,8 @@ impl DiscoveryService {
                             .describe_task_definition()
                             .task_definition(task_def_arn)
                             .send()
-                            .await?;
+                            .await
+                            .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
 
                         if let Some(task_def) = task_def.task_definition() {
                             for container_def in task_def.container_definitions() {
@@ -213,7 +218,9 @@ impl DiscoveryService {
                 req = req.next_token(token);
             }
 
-            let resp = req.send().await?;
+            let resp = req.send()
+                .await
+                .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
             services.extend(resp.service_arns().to_vec());
 
             next_token = resp.next_token().map(|s| s.to_string());
@@ -245,7 +252,9 @@ impl DiscoveryService {
                 req = req.next_token(token);
             }
 
-            let resp = req.send().await?;
+            let resp = req.send()
+                .await
+                .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
             tasks.extend(resp.task_arns().to_vec());
 
             next_token = resp.next_token().map(|s| s.to_string());
@@ -276,7 +285,8 @@ impl DiscoveryService {
             .cluster(cluster_name)
             .set_container_instances(Some(vec![container_instance_arn.to_string()]))
             .send()
-            .await?;
+            .await
+            .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
 
         let ec2_instance_id = container_instances
             .container_instances()
@@ -291,7 +301,7 @@ impl DiscoveryService {
             .set_instance_ids(Some(vec![ec2_instance_id.to_string()]))
             .send()
             .await
-            .map_err(DiscoveryError::Ec2Error)?;
+            .map_err(|e| DiscoveryError::Ec2Error(e.to_string()))?;
 
         let private_ip = instances
             .reservations()
