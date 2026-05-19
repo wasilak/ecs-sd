@@ -4,6 +4,8 @@ use axum::{
 };
 use crate::state::AppState;
 use crate::models::{Target, FilterParams};
+use serde_json::json;
+use tracing::info;
 
 pub async fn sd_handler(
     State(state): State<AppState>,
@@ -12,6 +14,30 @@ pub async fn sd_handler(
     let targets = state.cache.read().await.clone();
     let filtered = filter_targets(targets, params);
     Json(filtered)
+}
+
+pub async fn refresh_handler(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let clusters = state.config.clusters.clone();
+
+    info!("Manual discovery refresh triggered");
+
+    let targets = state.discovery.discover_all_clusters(&clusters).await;
+    let count = targets.len();
+
+    // Update cache
+    {
+        let mut cache = state.cache.write().await;
+        *cache = targets;
+    }
+
+    info!("Discovery refresh complete: {} targets", count);
+
+    Json(json!({
+        "status": "ok",
+        "targets_discovered": count
+    }))
 }
 
 fn filter_targets(targets: Vec<Target>, params: FilterParams) -> Vec<Target> {
