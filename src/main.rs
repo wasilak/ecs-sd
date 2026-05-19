@@ -1,100 +1,76 @@
-use aws_config::BehaviorVersion;
-use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_ecs::{Client, Error};
+mod error;
+mod config;
+mod state;
+mod aws;
+mod models;
+mod routes;
+mod handlers;
+
+use axum::Router;
+use std::net::SocketAddr;
+use tokio::signal;
+use tracing::{info, error};
+
+use crate::config::Config;
+use crate::state::AppState;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
-    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-    let config = aws_config::defaults(BehaviorVersion::latest())
-        .region(region_provider)
-        .load()
-        .await;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing
+    tracing_subscriber::fmt::init();
 
-    let client = Client::new(&config);
+    info!("Starting ecs-sd server");
 
-    let clusters_list = vec![
+    // Create config (hardcoded for Phase 1)
+    let config = Config::new(vec![
         "service-platform-default".to_string(),
-        "arn:aws:ecs:eu-west-1:723255075185:cluster/service-platform-default".to_string(),
-    ];
+    ]);
 
-    let clusters = show_clusters(&client, &clusters_list).await?;
+    // Create AWS clients
+    let (ecs_client, ec2_client) = aws::client::create_clients().await?;
 
-    list_tasks_in_cluster(&client, clusters).await;
+    // Create shared state
+    let state = AppState::new(config.clone(), ecs_client, ec2_client);
 
+    // Build router
+    let app = Router::new()
+        .merge(routes::create_routes())
+        .with_state(state);
+
+    // Parse bind address
+    let addr: SocketAddr = config.listen.parse()?;
+    info!("Listening on {}", addr);
+
+    // Start server with graceful shutdown
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    info!("Server shut down gracefully");
     Ok(())
 }
 
-async fn show_clusters(
-    client: &aws_sdk_ecs::Client,
-    clusters_list: &[String],
-) -> Result<Option<Vec<aws_sdk_ecs::types::Cluster>>, aws_sdk_ecs::Error> {
-    // let resp = client.list_clusters().send().await?;
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
 
-    let clusters = client
-        .describe_clusters()
-        .set_clusters(Some(clusters_list.into()))
-        .send()
-        .await?;
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
 
-    Ok(Some(clusters.clusters().to_vec()))
-}
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
 
-async fn list_tasks_in_cluster(
-    client: &aws_sdk_ecs::Client,
-    cluster: Option<Vec<aws_sdk_ecs::types::Cluster>>,
-) {
-    if let Some(clusters) = cluster {
-        for cluster in clusters {
-            println!("  ARN:  {}", cluster.cluster_arn().unwrap());
-            println!("  Name: {}", cluster.cluster_name().unwrap());
-
-            let tasks_list = client
-                .list_tasks()
-                .set_cluster(cluster.cluster_arn().map(|s| s.to_string()))
-                .send()
-                .await
-                .unwrap();
-
-            let tasks = client
-                .describe_tasks()
-                .set_cluster(cluster.cluster_arn().map(|s| s.to_string()))
-                .set_tasks(Some(tasks_list.task_arns().to_vec()))
-                .send()
-                .await
-                .unwrap();
-
-            for task in tasks.tasks() {
-                println!("    Task ARN: {}", task.task_arn().unwrap());
-                println!(
-                    "    Task Definition ARN: {}",
-                    task.task_definition_arn().unwrap()
-                );
-                println!("    Last Status: {}", task.last_status().unwrap());
-
-                let task_definition = client
-                    .describe_task_definition()
-                    .set_task_definition(task.task_definition_arn().map(|s| s.to_string()))
-                    .send()
-                    .await
-                    .unwrap();
-
-                for container_def in task_definition
-                    .task_definition()
-                    .unwrap()
-                    .container_definitions()
-                {
-                    println!("      Container Name: {}", container_def.name().unwrap());
-                    println!("      Image: {}", container_def.image().unwrap());
-                    println!("      Environment Variables:");
-                    for env_var in container_def.environment() {
-                        println!(
-                            "        {}: {}",
-                            env_var.name().unwrap(),
-                            env_var.value().unwrap()
-                        );
-                    }
-                }
-            }
-        }
+    tokio::select! {
+        _ = ctrl_c => info!("Received Ctrl+C, shutting down"),
+        _ = terminate => info!("Received SIGTERM, shutting down"),
     }
 }
