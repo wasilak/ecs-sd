@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Release
-current_phase: "2"
-status: complete
-last_updated: "2026-05-19T21:40:00.000Z"
+current_phase: "3"
+status: context-gathered
+last_updated: "2026-05-19T22:15:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 2
@@ -16,7 +16,7 @@ progress:
 # Project State: ecs-sd
 
 **Project:** ecs-sd — AWS ECS HTTP Service Discovery for Prometheus/VictoriaMetrics
-**Current Phase:** 2 — Metadata Labels (Planned)
+**Current Phase:** 3 — Caching & Configuration (Context Gathered)
 **Last Updated:** 2026-05-19
 
 ---
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-19)
 
 **Core value:** Zero-config metrics discovery for ECS containers — automatic discovery of metrics endpoints with configurable metadata
 
-**Current focus:** Phase 2 — Metadata Labels context gathered, ready for planning
+**Current focus:** Phase 3 — Caching & Configuration context gathered, ready for planning
 
 ---
 
@@ -37,7 +37,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-19)
 |-------|------|--------|----------|
 | 1 | Core Discovery & HTTP API | ✓ Complete | 100% |
 | 2 | Metadata Labels | ✓ Complete | 100% |
-| 3 | Caching & Configuration | ○ Pending | 0% |
+| 3 | Caching & Configuration | ○ Context Gathered | 20% |
 | 4 | Observability & Logging | ○ Pending | 0% |
 | 5 | Packaging & CI/CD | ○ Pending | 0% |
 
@@ -91,6 +91,19 @@ Key decisions implemented:
 4. Per-Request Level Override — Query param ?level= with HashMap<MetadataLevel, Vec<Target>> cache
 5. Missing Metadata Handling — Labels omitted entirely when data unavailable
 
+**Phase 3: Caching & Configuration — CONTEXT GATHERED ✓**
+
+Context gathering complete. Decisions captured:
+1. Cache Refresh Strategy — Log errors, continue with stale data, ±10% jitter
+2. CLI Framework — clap derive macros, flat flags, auto-generated help
+3. Configuration Precedence — CLI args > env vars > defaults
+4. Background Task Lifecycle — Let refresh complete, tokio::interval, immediate first refresh
+5. Cache Visibility — X-Cache-Age header, DEBUG-level hit/miss logging
+
+**Artifacts:**
+- Context: `.planning/phases/03-caching-configuration/03-CONTEXT.md`
+- Discussion Log: `.planning/phases/03-caching-configuration/03-DISCUSSION-LOG.md`
+
 ---
 
 ## Blockers
@@ -118,9 +131,9 @@ _None_
 
 1. ✓ Phase 1 execution complete
 2. ✓ Phase 2 execution complete — 3 plans, all requirements (META-01..16) implemented
-3. **Next:** Plan Phase 3 — Caching & Configuration
-   - `/gsd-discuss-phase 3` — gather context for caching strategy
-   - `/gsd-plan-phase 3` — create detailed plans
+3. ✓ Phase 3 context gathered — 5 gray areas discussed, decisions captured in 03-CONTEXT.md
+4. **Next:** Plan Phase 3 — Caching & Configuration
+   - `/gsd-plan-phase 3` — create detailed plans for background refresh and CLI implementation
 
 ## Recent Decisions (Phase 2 Context)
 
