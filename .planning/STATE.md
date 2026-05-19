@@ -1,6 +1,6 @@
 # Project State: ecs-sd
 
-**Project:** ecs-sd — AWS ECS Service Discovery CLI Tool  
+**Project:** ecs-sd — AWS ECS HTTP Service Discovery for Prometheus/VictoriaMetrics  
 **Current Phase:** Not started  
 **Last Updated:** 2026-05-19  
 
@@ -10,9 +10,9 @@
 
 See: `.planning/PROJECT.md` (updated 2026-05-19)
 
-**Core value:** Instant visibility into ECS infrastructure — provide complete cluster-to-container introspection in a single command
+**Core value:** Zero-config metrics discovery for ECS containers — automatic discovery of metrics endpoints with configurable metadata
 
-**Current focus:** Project initialization complete — ready for Phase 1
+**Current focus:** Project scope clarified — ready for Phase 1 planning
 
 ---
 
@@ -20,16 +20,17 @@ See: `.planning/PROJECT.md` (updated 2026-05-19)
 
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
-| 1 | Core Service Discovery | ○ Pending | 0% |
-| 2 | Output Formats & Filtering | ○ Pending | 0% |
-| 3 | Advanced Filtering & Performance | ○ Pending | 0% |
-| 4 | Health & Networking Discovery | ○ Pending | 0% |
+| 1 | Core Discovery & HTTP API | ○ Pending | 0% |
+| 2 | Metadata Labels | ○ Pending | 0% |
+| 3 | Caching & Configuration | ○ Pending | 0% |
+| 4 | Observability & Logging | ○ Pending | 0% |
+| 5 | Packaging & CI/CD | ○ Pending | 0% |
 
 ---
 
 ## Active Work
 
-_None — project just initialized_
+_None — project scope just clarified from Obsidian spec_
 
 ---
 
@@ -41,9 +42,12 @@ _None_
 
 ## Recent Decisions
 
-1. **Project Mode**: Standard (Horizontal Layers) — building complete technical layers
-2. **Commit Strategy**: Planning docs tracked in git
-3. **Workflow**: YOLO mode with plan checking and verification enabled
+1. **Project Type**: HTTP server (not CLI) — provides Prometheus http_sd_configs endpoint
+2. **Launch Type**: EC2 only — Fargate excluded from v1 scope
+3. **Target Criteria**: Containers with docker label `metrics_port`
+4. **Address Format**: EC2 instance private IP + metrics_port value
+5. **Cache Strategy**: Stale-while-revalidate — always serve cached, refresh in background
+6. **Metadata Levels**: 5 levels (container → task → service → cluster → aws), configurable
 
 ---
 

@@ -1,8 +1,8 @@
-# Roadmap: ecs-sd (ECS Service Discovery)
+# Roadmap: ecs-sd (ECS Prometheus Service Discovery)
 
-**Project:** ecs-sd — AWS ECS Service Discovery CLI Tool  
+**Project:** ecs-sd — AWS ECS HTTP Service Discovery for Prometheus/VictoriaMetrics  
 **Created:** 2026-05-19  
-**Mode:** Standard (Horizontal Layers)  
+**Mode:** Standard (Vertical Slices)  
 
 ---
 
@@ -10,133 +10,208 @@
 
 | Phase | Name | Goal | Requirements | Est. Effort |
 |-------|------|------|--------------|-------------|
-| 1 | Core Service Discovery | Discover ECS services and their relationships | SD-01, SD-02, SD-03 | Medium |
-| 2 | Output Formats & Basic Filtering | Enable programmatic use with JSON/YAML and simple filters | OUT-01, OUT-02, OUT-03, FILT-01, FILT-02 | Medium |
-| 3 | Advanced Filtering & Performance | Image filtering, cluster auto-discovery, caching, parallelization | FILT-03, FILT-04, PERF-01, PERF-02 | Medium |
-| 4 | Health & Networking Discovery | Service health checks and Service Connect proxy config | HEALTH-01, HEALTH-02 | Small |
+| 1 | Core Discovery & HTTP API | Implement ECS discovery and basic HTTP endpoints | DISC-01..06, HTTP-01..04 | Large |
+| 2 | Metadata Labels | Implement all metadata levels with configuration | META-01..16 | Large |
+| 3 | Caching & Configuration | Add caching layer and CLI configuration | CACHE-01..06, CONF-01..06 | Medium |
+| 4 | Observability & Logging | Add structured JSON logging and instrumentation | OBS-01..04 | Small |
+| 5 | Packaging & CI/CD | Docker, GHCR, GitHub Actions workflow | PKG-01..03, QUAL-01..05 | Medium |
 
 ---
 
-## Phase 1: Core Service Discovery
+## Phase 1: Core Discovery & HTTP API
 
-**Goal:** Implement foundational service discovery — tool can discover ECS services and map them to tasks
+**Goal:** ECS task discovery working and HTTP endpoints serving valid Prometheus SD format
 
 **Requirements:**
-- SD-01: Automatically discover all ECS services across clusters
-- SD-02: Display service-to-task mapping
-- SD-03: Discover service endpoints (target groups, load balancers)
+- DISC-01: Discover ECS clusters from configured list
+- DISC-02: Discover services within clusters  
+- DISC-03: List tasks with EC2 launch type
+- DISC-04: Filter tasks by docker label `metrics_port`
+- DISC-05: Resolve EC2 instance IP for tasks
+- DISC-06: Build Prometheus-compatible targets
+- HTTP-01: `/health` endpoint
+- HTTP-02: `/sd` endpoint with proper JSON format
+- HTTP-03: Query param filtering support
+- HTTP-04: Graceful shutdown
 
 **Success Criteria:**
-1. User can run `ecs-sd services` and see all services across clusters
-2. Output shows service name, cluster, desired/running count, and associated tasks
-3. Service endpoints (load balancer DNS, target group ARNs) are displayed
-4. Works with existing cluster discovery (replaces hardcoded list with dynamic discovery)
+1. `GET /health` returns 200 OK
+2. `GET /sd` returns valid Prometheus http_sd_configs JSON:
+   ```json
+   [
+     {
+       "targets": ["10.0.1.5:9999"],
+       "labels": {
+         "__meta_ecs_cluster_name": "prod",
+         "__meta_ecs_service_name": "api",
+         "__meta_ecs_task_family": "api-task"
+       }
+     }
+   ]
+   ```
+3. Targets include only tasks with `metrics_port` docker label
+4. Address format is `EC2_IP:metrics_port`
+5. Graceful shutdown handles in-flight requests
 
 **Dependencies:**
-- AWS SDK ECS client (already exists)
-- ListServices, DescribeServices API calls
-- ELBv2 client for load balancer discovery (DescribeTargetGroups, DescribeLoadBalancers)
+- tokio (async runtime)
+- axum (HTTP framework)
+- aws-config + aws-sdk-ecs
+- tracing (logging)
+- serde (JSON serialization)
+
+**Key Technical Challenges:**
+- AWS API pagination for clusters, services, tasks
+- Mapping task → container instance → EC2 instance → private IP
+- Filtering containers by docker label
+- Error handling for AWS API failures
 
 **Notes:**
-- Keep existing cluster/task functionality intact
-- Service discovery is new functionality, not replacement
+- Hardcode minimal labels initially (just cluster, service, task)
+- Full metadata levels come in Phase 2
+- No caching yet — direct AWS calls per request
 
 ---
 
-## Phase 2: Output Formats & Basic Filtering
+## Phase 2: Metadata Labels
 
-**Goal:** Make output machine-readable and filterable for integration with other tools
+**Goal:** Complete metadata label system with all 5 levels and configurable output
 
 **Requirements:**
-- OUT-01: JSON output format
-- OUT-02: YAML output format
-- OUT-03: Human-readable default preserved
-- FILT-01: Filter by service name (exact/partial)
-- FILT-02: Filter by task status
+- META-01..14: All label types implemented
+- META-15..16: Global and per-request level configuration
 
 **Success Criteria:**
-1. `--format json` produces valid JSON output
-2. `--format yaml` produces valid YAML output
-3. `--service my-service` filters to matching services
-4. `--status RUNNING` filters tasks by status
-5. Default (no flags) maintains current human-readable output
+1. `--metadata-level container` includes only container labels
+2. `--metadata-level aws` includes all labels (container + task + service + cluster + aws)
+3. `GET /sd?level=service` overrides global default for that request
+4. All AWS metadata extracted correctly (region, account, AZ)
 
 **Dependencies:**
-- Phase 1 complete (service discovery working)
-- serde for serialization
-- clap for argument parsing (if not already present)
+- Phase 1 complete
+- clap (CLI parsing)
+
+**Key Technical Challenges:**
+- Parsing ARNs to extract account ID
+- Getting EC2 instance details (DescribeInstances) for AZ
+- Efficient label building without excessive cloning
 
 **Notes:**
-- Consider structured output schemas for stability
-- JSON output should be pipeable to jq
+- Default level: `task` (includes container + task labels)
+- Level hierarchy: container < task < service < cluster < aws
+- Higher levels include all lower level labels
 
 ---
 
-## Phase 3: Advanced Filtering & Performance
+## Phase 3: Caching & Configuration
 
-**Goal:** Enable flexible discovery patterns and reduce AWS API overhead
+**Goal:** Background refresh with stale-while-revalidate and full CLI configuration
 
 **Requirements:**
-- FILT-03: Filter by container image name/tag
-- FILT-04: Discover services across all clusters (no explicit list)
-- PERF-01: Cache AWS API responses (60s TTL)
-- PERF-02: Parallel API calls for clusters
+- CACHE-01..06: In-memory caching with background refresh
+- CONF-01..06: CLI flags with env var support
 
 **Success Criteria:**
-1. `--image nginx:latest` filters services by container image
-2. `--all-clusters` discovers across all accessible ECS clusters
-3. Second run within 60 seconds uses cached data (no AWS calls)
-4. Multiple clusters queried in parallel (improved latency)
+1. `--refresh-interval 30s` sets cache refresh to 30 seconds
+2. Background task refreshes cache without blocking requests
+3. Requests always serve from cache immediately
+4. Failed refresh logs error, continues serving stale data
+5. All config options work via env vars (e.g., `ECS_SD_REFRESH_INTERVAL=30s`)
+6. AWS credentials work with IAM role, profile, or env vars
 
 **Dependencies:**
 - Phase 2 complete
-- Caching library (e.g., cached crate)
-- Tokio for parallel execution (already available)
+- tokio::time for intervals
+- dashmap or RwLock for concurrent cache access
+
+**Key Technical Challenges:**
+- Thread-safe cache updates without blocking readers
+- Background task lifecycle management
+- Graceful handling of AWS throttling during refresh
 
 **Notes:**
-- Cache location: temp dir or XDG cache
-- Parallelism must respect AWS API rate limits
-- Consider exponential backoff for throttling
+- Cache structure: `HashMap<ClusterName, Vec<Target>>`
+- Use `Arc<RwLock<_>>` or `dashmap` for concurrent access
+- Refresh task spawned on startup, runs forever
 
 ---
 
-## Phase 4: Health & Networking Discovery
+## Phase 4: Observability & Logging
 
-**Goal:** Surface health check and service mesh configuration
+**Goal:** Structured JSON logging and operational visibility
 
 **Requirements:**
-- HEALTH-01: Display health check configuration
-- HEALTH-02: Display Service Connect proxy configuration
+- OBS-01..04: JSON logging, discovery events, target counts
 
 **Success Criteria:**
-1. Health check path, interval, timeout visible per service
-2. Service Connect namespace and DNS name displayed if enabled
-3. Proxy configuration (App Mesh or ECS Service Connect) shown
+1. Logs are valid JSON with `timestamp`, `level`, `message`, `fields`
+2. Log includes discovery start: `{"message":"discovery refresh started","clusters":["prod"]}`
+3. Log includes completion: `{"message":"discovery refresh complete","targets":42,"duration_ms":1500}`
+4. Log includes failures: `{"message":"discovery refresh failed","error":"..."}`
 
 **Dependencies:**
 - Phase 3 complete
-- Health check data from target groups
-- Service Connect API understanding
+- tracing + tracing-subscriber with json feature
+
+**Key Technical Challenges:**
+- Structured fields in tracing spans
+- Proper error context propagation
 
 **Notes:**
-- Service Connect is newer ECS feature — verify API availability
-- Health checks may require ELB + ECS API coordination
+- Use `tracing` macros: `info!`, `warn!`, `error!`
+- Configure subscriber at startup based on RUST_LOG
+
+---
+
+## Phase 5: Packaging & CI/CD
+
+**Goal:** Production-ready container image and automated release pipeline
+
+**Requirements:**
+- PKG-01..03: Dockerfile, GHCR, GitHub Actions
+- QUAL-01..05: Unit tests, error handling, idiomatic Rust
+
+**Success Criteria:**
+1. `docker build -t ecs-sd .` produces working image
+2. Image runs as non-root user
+3. GitHub Actions workflow runs on push to main:
+   - Run `cargo test`
+   - Build and push to `ghcr.io/wasilak/ecs-sd:latest`
+   - Create release with binary artifact
+4. All unit tests pass
+5. No unwrap/expect in production code paths
+6. Proper AWS pagination handling
+
+**Dependencies:**
+- All previous phases complete
+- GitHub repository configured with GHCR access
+
+**Key Technical Challenges:**
+- Multi-stage Dockerfile for minimal image size
+- GitHub Actions secrets for GHCR push
+- Release automation with proper tagging
+
+**Notes:**
+- Use distroless or alpine for final image
+- Cache cargo dependencies in Docker build
+- Release binary should be statically linked or include required libs
 
 ---
 
 ## Milestone: v1.0 Release
 
-**Trigger:** All 4 phases complete
+**Trigger:** All 5 phases complete
 
 **Definition of Done:**
-- All v1 requirements implemented and tested
-- CLI help documentation complete
-- README with usage examples
-- Published to crates.io (optional but recommended)
+- All v1 requirements (38 total) implemented
+- All unit tests passing
+- Container image published to GHCR
+- README with usage examples and configuration reference
+- Example Prometheus scrape config showing http_sd_configs usage
 
 **Post-Milestone:**
 - Move v2 requirements into Active
-- Define v2 phases based on user feedback
+- Consider Fargate support, custom filtering, metrics exposition
 
 ---
 
@@ -144,10 +219,11 @@
 
 | Phase | Status | Requirements Complete | Plans Created |
 |-------|--------|----------------------|---------------|
-| 1 | ○ Not Started | 0/3 | 0/? |
-| 2 | ○ Not Started | 0/5 | 0/? |
-| 3 | ○ Not Started | 0/4 | 0/? |
-| 4 | ○ Not Started | 0/2 | 0/? |
+| 1 | ○ Not Started | 0/10 | 0/? |
+| 2 | ○ Not Started | 0/16 | 0/? |
+| 3 | ○ Not Started | 0/12 | 0/? |
+| 4 | ○ Not Started | 0/4 | 0/? |
+| 5 | ○ Not Started | 0/8 | 0/? |
 
 **Last updated:** 2026-05-19
 
