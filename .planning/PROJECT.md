@@ -12,7 +12,19 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 
 ### Validated
 
-_None yet — project just initialized_
+- **Phase 03 (caching-configuration)**
+  - **CONF-01**: Use clap for CLI with full env var support
+  - **CONF-02**: Support cluster list configuration
+  - **CONF-03**: Support metadata level configuration
+  - **CONF-04**: Support refresh interval configuration
+  - **CONF-05**: Support listen address/port configuration
+  - **CONF-06**: AWS credentials via standard chain (live human UAT still pending)
+  - **CACHE-01**: Cache AWS discovery results in memory
+  - **CACHE-02**: Configurable refresh interval (default: 60s)
+  - **CACHE-03**: Background refresh on interval (non-blocking)
+  - **CACHE-04**: Always serve cached data — stale data acceptable until refresh succeeds
+  - **CACHE-05**: Prevent thundering herd/request flood during cache refresh
+  - **CACHE-06**: TTL explicitly enforced against refresh interval
 
 ### Active
 
@@ -39,19 +51,8 @@ _None yet — project just initialized_
 - [ ] **META-07**: Overridable per-request via query param
 
 **Caching & Performance**
-- [ ] **CACHE-01**: Cache AWS discovery results in memory
-- [ ] **CACHE-02**: Configurable refresh interval (default: 60s)
-- [ ] **CACHE-03**: Background refresh on interval (non-blocking)
-- [ ] **CACHE-04**: Always serve cached data — stale data acceptable until refresh succeeds
-- [ ] **CACHE-05**: Prevent thundering herd/request flood during cache refresh
 
 **Configuration**
-- [ ] **CONF-01**: Use clap for CLI with full env var support
-- [ ] **CONF-02**: Support cluster list configuration
-- [ ] **CONF-03**: Support metadata level configuration
-- [ ] **CONF-04**: Support refresh interval configuration
-- [ ] **CONF-05**: Support listen address/port configuration
-- [ ] **CONF-06**: AWS credentials via standard chain (IAM role, profile, env vars)
 
 **Observability**
 - [ ] **OBS-01**: Structured logging in JSON format
@@ -134,6 +135,10 @@ _None yet — project just initialized_
 
 ## Evolution
 
+## Current State
+
+Phase 03 is complete: startup configuration parsing, cache lifecycle, and TTL enforcement are implemented and verified in code/tests. Human verification remains for live AWS credential modes (IAM role, profile, env vars).
+
 This document evolves at phase transitions and milestone boundaries.
 
 **After each phase transition** (via `/gsd-transition`):
@@ -150,4 +155,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 after scope clarification*
+*Last updated: 2026-05-20 after Phase 03 completion*
