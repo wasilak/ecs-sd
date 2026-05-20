@@ -227,4 +227,24 @@ mod tests {
         let filtered = filter_targets(targets, &params);
         assert_eq!(filtered.len(), 2); // No filtering returns all
     }
+
+    #[test]
+    fn test_cache_age_seconds_from_system_times() {
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let refreshed = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(88);
+
+        let age = calculate_cache_age_seconds(refreshed, now);
+        assert_eq!(age, 12);
+    }
+
+    #[test]
+    fn test_sd_response_includes_cache_age_header() {
+        let response = build_sd_response_with_cache_age(vec![], 7);
+        let header = response
+            .headers()
+            .get("X-Cache-Age")
+            .expect("X-Cache-Age header must be present");
+
+        assert_eq!(header, "7");
+    }
 }
