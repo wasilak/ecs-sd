@@ -137,8 +137,7 @@ fn spawn_background_refresh(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let base_interval = Duration::from_secs(state.config.refresh_interval.max(1));
-        let mut interval = tokio::time::interval(base_interval);
-        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut interval = create_refresh_interval(base_interval);
 
         loop {
             tokio::select! {
@@ -177,6 +176,12 @@ fn spawn_background_refresh(
             }
         }
     })
+}
+
+fn create_refresh_interval(base_interval: Duration) -> tokio::time::Interval {
+    let mut interval = tokio::time::interval(base_interval);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    interval
 }
 
 async fn refresh_cache_once(state: &AppState) -> Result<usize, String> {
@@ -283,8 +288,8 @@ mod tests {
         assert_eq!(delay.as_secs(), 1);
     }
 
-    #[test]
-    fn ttl_refresh_loop_uses_skip_missed_tick_behavior() {
+    #[tokio::test]
+    async fn ttl_refresh_loop_uses_skip_missed_tick_behavior() {
         let interval = create_refresh_interval(Duration::from_secs(30));
 
         assert_eq!(interval.missed_tick_behavior(), MissedTickBehavior::Skip);
@@ -295,9 +300,13 @@ mod tests {
         let main_src = include_str!("main.rs");
         let sd_src = include_str!("handlers/sd.rs");
 
-        for token in ["refresh_trigger", "force_refresh_rx", "try_send"] {
-            assert!(!main_src.contains(token), "main.rs must not contain {token}");
-            assert!(!sd_src.contains(token), "handlers/sd.rs must not contain {token}");
+        let token_one = ["refresh", "trigger"].join("_");
+        let token_two = ["force", "refresh", "rx"].join("_");
+        let token_three = ["try", "send"].join("_");
+
+        for token in [token_one, token_two, token_three] {
+            assert!(!main_src.contains(&token), "main.rs must not contain {token}");
+            assert!(!sd_src.contains(&token), "handlers/sd.rs must not contain {token}");
         }
     }
 }
