@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::time::SystemTime;
 use tokio::sync::RwLock;
 use crate::config::Config;
 use crate::error::DiscoveryError;
@@ -9,6 +10,7 @@ use crate::aws::DiscoveryService;
 #[derive(Clone)]
 pub struct AppState {
     pub cache: Arc<RwLock<HashMap<MetadataLevel, Vec<Target>>>>,
+    pub last_refresh: Arc<RwLock<SystemTime>>,
     pub config: Arc<Config>,
     pub discovery: DiscoveryService,
 }
@@ -25,6 +27,7 @@ impl AppState {
 
         Ok(Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
+            last_refresh: Arc::new(RwLock::new(SystemTime::now())),
             config: Arc::new(config),
             discovery,
         })

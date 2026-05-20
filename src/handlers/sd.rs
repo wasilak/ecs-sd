@@ -1,5 +1,7 @@
 use axum::{
     extract::{Query, State},
+    http::{HeaderMap, HeaderValue},
+    response::{IntoResponse, Response},
     Json,
 };
 use crate::state::AppState;
@@ -7,20 +9,34 @@ use crate::models::{MetadataLevel, SdQueryParams, Target};
 use serde_json::json;
 use tracing::info;
 use std::collections::HashMap;
+use std::time::SystemTime;
+use tracing::debug;
 
 pub async fn sd_handler(
     State(state): State<AppState>,
     Query(params): Query<SdQueryParams>,
-) -> Json<Vec<Target>> {
+) -> Response {
     let cache = state.cache.read().await;
-    let targets = cache
+    let maybe_targets = cache
         .get(&params.level)
-        .cloned()
-        .unwrap_or_default();
+        .cloned();
+
+    let targets = maybe_targets.unwrap_or_default();
+
+    if !targets.is_empty() {
+        debug!("cache hit: {} targets served", targets.len());
+    } else {
+        debug!("cache miss: 0 targets served for level={}", params.level);
+    }
+
     drop(cache); // Release read lock before filtering
-    
+
     let filtered = filter_targets(targets, &params);
-    Json(filtered)
+
+    let last_refresh = *state.last_refresh.read().await;
+    let cache_age_seconds = calculate_cache_age_seconds(last_refresh, SystemTime::now());
+
+    build_sd_response_with_cache_age(filtered, cache_age_seconds)
 }
 
 pub async fn refresh_handler(
@@ -133,6 +149,21 @@ fn filter_targets(targets: Vec<Target>, params: &SdQueryParams) -> Vec<Target> {
             true
         })
         .collect()
+}
+
+fn calculate_cache_age_seconds(last_refresh: SystemTime, now: SystemTime) -> u64 {
+    now.duration_since(last_refresh)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn build_sd_response_with_cache_age(targets: Vec<Target>, cache_age_seconds: u64) -> Response {
+    let mut headers = HeaderMap::new();
+    let header_value = HeaderValue::from_str(&cache_age_seconds.to_string())
+        .unwrap_or_else(|_| HeaderValue::from_static("0"));
+    headers.insert("X-Cache-Age", header_value);
+
+    (headers, Json(targets)).into_response()
 }
 
 #[cfg(test)]
