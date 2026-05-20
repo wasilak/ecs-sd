@@ -165,3 +165,26 @@ async fn shutdown_signal() {
         _ = terminate => info!("Received SIGTERM, shutting down"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    #[test]
+    fn jittered_delay_stays_within_plus_minus_ten_percent_bounds() {
+        let base = Duration::from_secs(60);
+        let high = calculate_jittered_delay(base, 0.10);
+        let low = calculate_jittered_delay(base, -0.10);
+
+        assert_eq!(high.as_secs(), 66);
+        assert_eq!(low.as_secs(), 54);
+    }
+
+    #[test]
+    fn jittered_delay_never_drops_below_one_second() {
+        let base = Duration::from_secs(1);
+        let delay = calculate_jittered_delay(base, -0.90);
+
+        assert_eq!(delay.as_secs(), 1);
+    }
+}
