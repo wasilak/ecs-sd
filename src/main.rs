@@ -7,10 +7,15 @@ mod routes;
 mod handlers;
 
 use axum::Router;
+use rand::Rng;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::{Duration, SystemTime};
 use tokio::signal;
+use tokio::sync::watch;
+use tokio::time::MissedTickBehavior;
 use tracing::info;
+use tracing::warn;
 
 use crate::config::Config;
 use crate::models::{MetadataLevel, Target};
@@ -60,36 +65,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Perform initial discovery to populate all cache tiers
     info!("Performing initial discovery...");
     let targets_aws = state.discovery.discover_all_clusters(&config.clusters).await;
-    
-    // Derive all cache tiers from Aws-level targets
-    let targets_cluster: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
-        .collect();
-    let targets_service: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Service))
-        .collect();
-    let targets_task: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Task))
-        .collect();
-    let targets_container: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Container))
-        .collect();
-
-    // Populate cache
-    {
-        let mut cache = state.cache.write().await;
-        cache.insert(MetadataLevel::Aws, targets_aws);
-        cache.insert(MetadataLevel::Cluster, targets_cluster);
-        cache.insert(MetadataLevel::Service, targets_service);
-        cache.insert(MetadataLevel::Task, targets_task);
-        cache.insert(MetadataLevel::Container, targets_container);
-    }
+    replace_cache_levels_and_refresh_time(&state, targets_aws).await;
 
     info!("Initial discovery complete");
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let refresh_handle = spawn_background_refresh(state.clone(), shutdown_rx);
 
     // Build router
     let app = Router::new()
@@ -103,8 +84,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_signal(shutdown_tx.clone()))
         .await?;
+
+    if !*shutdown_tx.borrow() {
+        let _ = shutdown_tx.send(true);
+    }
+
+    if let Err(error) = refresh_handle.await {
+        warn!("background refresh task failed to join: {}", error);
+    }
 
     info!("Server shut down gracefully");
     Ok(())
@@ -142,7 +131,110 @@ fn filter_labels_by_level(target: &Target, level: MetadataLevel) -> Target {
     }
 }
 
-async fn shutdown_signal() {
+fn spawn_background_refresh(
+    state: AppState,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let base_interval = Duration::from_secs(state.config.refresh_interval.max(1));
+        let mut interval = tokio::time::interval(base_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if *shutdown_rx.borrow() {
+                        break;
+                    }
+
+                    let jitter_factor = rand::thread_rng().gen_range(-0.10..=0.10);
+                    let jittered_delay = calculate_jittered_delay(base_interval, jitter_factor);
+                    tokio::time::sleep(jittered_delay).await;
+
+                    if *shutdown_rx.borrow() {
+                        break;
+                    }
+
+                    info!("discovery refresh started");
+                    match refresh_cache_once(&state).await {
+                        Ok(target_count) => {
+                            info!("discovery refresh complete: {} targets", target_count);
+                        }
+                        Err(error) => {
+                            warn!("discovery refresh failed: {}", error);
+                        }
+                    }
+
+                    if *shutdown_rx.borrow() {
+                        break;
+                    }
+                }
+                changed = shutdown_rx.changed() => {
+                    if changed.is_ok() && *shutdown_rx.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+
+async fn refresh_cache_once(state: &AppState) -> Result<usize, String> {
+    if state.config.clusters.is_empty() {
+        return Err("no clusters configured for refresh".to_string());
+    }
+
+    let targets_aws = state
+        .discovery
+        .discover_all_clusters(&state.config.clusters)
+        .await;
+    let target_count = targets_aws.len();
+
+    replace_cache_levels_and_refresh_time(state, targets_aws).await;
+
+    Ok(target_count)
+}
+
+async fn replace_cache_levels_and_refresh_time(state: &AppState, targets_aws: Vec<Target>) {
+    let targets_cluster: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
+        .collect();
+    let targets_service: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Service))
+        .collect();
+    let targets_task: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Task))
+        .collect();
+    let targets_container: Vec<Target> = targets_aws
+        .iter()
+        .map(|t| filter_labels_by_level(t, MetadataLevel::Container))
+        .collect();
+
+    {
+        let mut cache = state.cache.write().await;
+        cache.insert(MetadataLevel::Aws, targets_aws);
+        cache.insert(MetadataLevel::Cluster, targets_cluster);
+        cache.insert(MetadataLevel::Service, targets_service);
+        cache.insert(MetadataLevel::Task, targets_task);
+        cache.insert(MetadataLevel::Container, targets_container);
+    }
+
+    {
+        let mut last_refresh = state.last_refresh.write().await;
+        *last_refresh = SystemTime::now();
+    }
+}
+
+fn calculate_jittered_delay(base_interval: Duration, jitter_factor: f64) -> Duration {
+    let base_ms = base_interval.as_millis() as f64;
+    let jittered_ms = (base_ms + (base_ms * jitter_factor)).max(1_000.0);
+    Duration::from_millis(jittered_ms.round() as u64)
+}
+
+async fn shutdown_signal(shutdown_tx: watch::Sender<bool>) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -164,10 +256,13 @@ async fn shutdown_signal() {
         _ = ctrl_c => info!("Received Ctrl+C, shutting down"),
         _ = terminate => info!("Received SIGTERM, shutting down"),
     }
+
+    let _ = shutdown_tx.send(true);
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::time::Duration;
 
     #[test]
