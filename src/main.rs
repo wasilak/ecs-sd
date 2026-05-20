@@ -23,10 +23,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting ecs-sd server");
 
-    // Create config (hardcoded for Phase 1)
-    let config = Config::new(vec![
-        "service-platform-default".to_string(),
-    ]);
+    // Parse startup config from CLI/env/defaults
+    let config = match Config::from_process_args() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("Startup configuration error: {}", error);
+            std::process::exit(1);
+        }
+    };
 
     // Create AWS clients
     let (ecs_client, ec2_client) = aws::client::create_clients().await?;
