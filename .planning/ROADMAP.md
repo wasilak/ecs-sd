@@ -25,6 +25,7 @@
 **Goal:** ECS task discovery working and HTTP endpoints serving valid Prometheus SD format
 
 **Requirements:**
+
 - DISC-01: Discover ECS clusters from configured list
 - DISC-02: Discover services within clusters  
 - DISC-03: List tasks with EC2 launch type
@@ -37,6 +38,7 @@
 - HTTP-04: Graceful shutdown
 
 **Success Criteria:**
+
 1. `GET /health` returns 200 OK
 2. `GET /sd` returns valid Prometheus http_sd_configs JSON:
    ```json
@@ -51,11 +53,13 @@
      }
    ]
    ```
+
 3. Targets include only tasks with `metrics_port` docker label
 4. Address format is `EC2_IP:metrics_port`
 5. Graceful shutdown handles in-flight requests
 
 **Dependencies:**
+
 - tokio (async runtime)
 - axum (HTTP framework)
 - aws-config + aws-sdk-ecs
@@ -63,12 +67,14 @@
 - serde (JSON serialization)
 
 **Key Technical Challenges:**
+
 - AWS API pagination for clusters, services, tasks
 - Mapping task → container instance → EC2 instance → private IP
 - Filtering containers by docker label
 - Error handling for AWS API failures
 
 **Notes:**
+
 - Hardcode minimal labels initially (just cluster, service, task)
 - Full metadata levels come in Phase 2
 - No caching yet — direct AWS calls per request
@@ -82,25 +88,30 @@
 **Goal:** Complete metadata label system with all 5 levels and configurable output
 
 **Requirements:**
+
 - META-01..14: All label types implemented
 - META-15..16: Global and per-request level configuration
 
 **Success Criteria:**
+
 1. `--metadata-level container` includes only container labels
 2. `--metadata-level aws` includes all labels (container + task + service + cluster + aws)
 3. `GET /sd?level=service` overrides global default for that request
 4. All AWS metadata extracted correctly (region, account, AZ)
 
 **Dependencies:**
+
 - Phase 1 complete
 - clap (CLI parsing)
 
 **Key Technical Challenges:**
+
 - Parsing ARNs to extract account ID
 - Getting EC2 instance details (DescribeInstances) for AZ
 - Efficient label building without excessive cloning
 
 **Notes:**
+
 - Default level: `task` (includes container + task labels)
 - Level hierarchy: container < task < service < cluster < aws
 - Higher levels include all lower level labels
@@ -111,11 +122,24 @@
 
 **Goal:** Background refresh with stale-while-revalidate and full CLI configuration
 
+**Plans:** 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — CLI/env configuration parsing, validation, and startup wiring
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Background cache refresh loop, jitter, stale serving, and cache-age visibility
+
 **Requirements:**
+
 - CACHE-01..06: In-memory caching with background refresh
 - CONF-01..06: CLI flags with env var support
 
 **Success Criteria:**
+
 1. `--refresh-interval 30s` sets cache refresh to 30 seconds
 2. Background task refreshes cache without blocking requests
 3. Requests always serve from cache immediately
@@ -124,16 +148,19 @@
 6. AWS credentials work with IAM role, profile, or env vars
 
 **Dependencies:**
+
 - Phase 2 complete
 - tokio::time for intervals
 - dashmap or RwLock for concurrent cache access
 
 **Key Technical Challenges:**
+
 - Thread-safe cache updates without blocking readers
 - Background task lifecycle management
 - Graceful handling of AWS throttling during refresh
 
 **Notes:**
+
 - Cache structure: `HashMap<ClusterName, Vec<Target>>`
 - Use `Arc<RwLock<_>>` or `dashmap` for concurrent access
 - Refresh task spawned on startup, runs forever
@@ -145,23 +172,28 @@
 **Goal:** Structured JSON logging and operational visibility
 
 **Requirements:**
+
 - OBS-01..04: JSON logging, discovery events, target counts
 
 **Success Criteria:**
+
 1. Logs are valid JSON with `timestamp`, `level`, `message`, `fields`
 2. Log includes discovery start: `{"message":"discovery refresh started","clusters":["prod"]}`
 3. Log includes completion: `{"message":"discovery refresh complete","targets":42,"duration_ms":1500}`
 4. Log includes failures: `{"message":"discovery refresh failed","error":"..."}`
 
 **Dependencies:**
+
 - Phase 3 complete
 - tracing + tracing-subscriber with json feature
 
 **Key Technical Challenges:**
+
 - Structured fields in tracing spans
 - Proper error context propagation
 
 **Notes:**
+
 - Use `tracing` macros: `info!`, `warn!`, `error!`
 - Configure subscriber at startup based on RUST_LOG
 
@@ -172,10 +204,12 @@
 **Goal:** Production-ready container image and automated release pipeline
 
 **Requirements:**
+
 - PKG-01..03: Dockerfile, GHCR, GitHub Actions
 - QUAL-01..05: Unit tests, error handling, idiomatic Rust
 
 **Success Criteria:**
+
 1. `docker build -t ecs-sd .` produces working image
 2. Image runs as non-root user
 3. GitHub Actions workflow runs on push to main:
@@ -187,15 +221,18 @@
 6. Proper AWS pagination handling
 
 **Dependencies:**
+
 - All previous phases complete
 - GitHub repository configured with GHCR access
 
 **Key Technical Challenges:**
+
 - Multi-stage Dockerfile for minimal image size
 - GitHub Actions secrets for GHCR push
 - Release automation with proper tagging
 
 **Notes:**
+
 - Use distroless or alpine for final image
 - Cache cargo dependencies in Docker build
 - Release binary should be statically linked or include required libs
@@ -207,6 +244,7 @@
 **Trigger:** All 5 phases complete
 
 **Definition of Done:**
+
 - All v1 requirements (38 total) implemented
 - All unit tests passing
 - Container image published to GHCR
@@ -214,6 +252,7 @@
 - Example Prometheus scrape config showing http_sd_configs usage
 
 **Post-Milestone:**
+
 - Move v2 requirements into Active
 - Consider Fargate support, custom filtering, metrics exposition
 
