@@ -8,15 +8,4 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn new(address: String) -> Self {
-        Self {
-            targets: vec![address],
-            labels: HashMap::new(),
-        }
-    }
-
-    pub fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.labels.insert(key.into(), value.into());
-        self
-    }
 }

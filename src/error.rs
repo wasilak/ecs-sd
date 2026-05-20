@@ -23,9 +23,6 @@ pub enum DiscoveryError {
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("Missing required configuration: {0}")]
-    MissingConfig(&'static str),
-
     #[error("Invalid configuration value: {0}")]
     InvalidValue(String),
 }

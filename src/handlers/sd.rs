@@ -16,9 +16,11 @@ pub async fn sd_handler(
     State(state): State<AppState>,
     Query(params): Query<SdQueryParams>,
 ) -> Response {
+    let level = params.level.unwrap_or(state.config.metadata_level);
+
     let cache = state.cache.read().await;
     let maybe_targets = cache
-        .get(&params.level)
+        .get(&level)
         .cloned();
 
     let targets = maybe_targets.unwrap_or_default();
@@ -26,7 +28,7 @@ pub async fn sd_handler(
     if !targets.is_empty() {
         debug!("cache hit: {} targets served", targets.len());
     } else {
-        debug!("cache miss: 0 targets served for level={}", params.level);
+        debug!("cache miss: 0 targets served for level={}", level);
     }
 
     drop(cache); // Release read lock before filtering
@@ -205,7 +207,7 @@ mod tests {
             cluster: Some("prod".to_string()),
             service: None,
             family: None,
-            level: MetadataLevel::default(),
+            level: Some(MetadataLevel::default()),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -226,7 +228,7 @@ mod tests {
             cluster: Some("prod".to_string()),
             service: None,
             family: None,
-            level: MetadataLevel::default(),
+            level: Some(MetadataLevel::default()),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -245,7 +247,7 @@ mod tests {
             cluster: Some("prod".to_string()),
             service: Some("api".to_string()),
             family: None,
-            level: MetadataLevel::default(),
+            level: Some(MetadataLevel::default()),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -263,7 +265,7 @@ mod tests {
             cluster: None,
             service: None,
             family: None,
-            level: MetadataLevel::default(),
+            level: Some(MetadataLevel::default()),
         };
 
         let filtered = filter_targets(targets, &params);

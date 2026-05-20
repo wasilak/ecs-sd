@@ -66,13 +66,6 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn new(clusters: Vec<String>) -> Self {
-        Self {
-            clusters,
-            ..Default::default()
-        }
-    }
-
     pub fn from_process_args() -> Result<Self, ConfigError> {
         Self::from_iter(std::env::args_os())
     }

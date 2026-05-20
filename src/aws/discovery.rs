@@ -1,15 +1,12 @@
 use crate::error::DiscoveryError;
 use crate::models::{LabelBuilder, MetadataLevel, Target};
 use aws_sdk_ecs::types::LaunchType;
-use aws_sdk_sts::Client as StsClient;
-use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
 #[derive(Clone)]
 pub struct DiscoveryService {
     ecs_client: aws_sdk_ecs::Client,
     ec2_client: aws_sdk_ec2::Client,
-    sts_client: StsClient,
     account_id: String,
     region: String,
 }
@@ -18,7 +15,7 @@ impl DiscoveryService {
     pub async fn new(
         ecs_client: aws_sdk_ecs::Client,
         ec2_client: aws_sdk_ec2::Client,
-        sts_client: StsClient,
+        sts_client: aws_sdk_sts::Client,
         region: String,
     ) -> Result<Self, DiscoveryError> {
         // Get account ID from STS
@@ -36,7 +33,6 @@ impl DiscoveryService {
         Ok(Self {
             ecs_client,
             ec2_client,
-            sts_client,
             account_id,
             region,
         })
@@ -197,7 +193,10 @@ impl DiscoveryService {
                                 };
 
                                 // 8. Resolve target address
-                                match self.resolve_target_address(container_instance_arn, port).await {
+                                match self
+                                    .resolve_target_address(cluster_arn, container_instance_arn, port)
+                                    .await
+                                {
                                     Ok((address, availability_zone)) => {
                                         let labels = LabelBuilder::new(MetadataLevel::Aws)
                                             .with_container(container_def, port)
@@ -297,21 +296,15 @@ impl DiscoveryService {
 
     async fn resolve_target_address(
         &self,
+        cluster_arn: &str,
         container_instance_arn: &str,
         port: u16,
     ) -> Result<(String, Option<String>), DiscoveryError> {
-        // Extract cluster from container instance ARN
-        // ARN format: arn:aws:ecs:region:account:container-instance/cluster-name/container-instance-id
-        let cluster_name = container_instance_arn
-            .split("/")
-            .nth(1)
-            .ok_or(DiscoveryError::NoContainerInstance)?;
-
         // Get EC2 instance ID from container instance
         let container_instances = self
             .ecs_client
             .describe_container_instances()
-            .cluster(cluster_name)
+            .cluster(cluster_arn)
             .set_container_instances(Some(vec![container_instance_arn.to_string()]))
             .send()
             .await
