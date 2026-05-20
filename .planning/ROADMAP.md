@@ -12,7 +12,7 @@
 |-------|------|------|--------------|-------------|
 | 1 | Core Discovery & HTTP API | Implement ECS discovery and basic HTTP endpoints | DISC-01..06, HTTP-01..04 | Large |
 | 2 | Metadata Labels | Implement all metadata levels with configuration | META-01..16 | Large |
-| 3 | Caching & Configuration | 2/2 | Complete   | 2026-05-20 |
+| 3 | Caching & Configuration | 3/3 | Complete   | 2026-05-20 |
 | 4 | Observability & Logging | Add structured JSON logging and instrumentation | OBS-01..04 | Small |
 | 5 | Packaging & CI/CD | Docker, GHCR, GitHub Actions workflow | PKG-01..03, QUAL-01..05 | Medium |
 
@@ -122,7 +122,7 @@
 
 **Goal:** Background refresh with stale-while-revalidate and full CLI configuration
 
-**Plans:** 2/2 plans complete
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -132,6 +132,10 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 03-02-PLAN.md — Background cache refresh loop, jitter, stale serving, and cache-age visibility
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 03-03-PLAN.md — CACHE-06 TTL enforcement in request path while preserving interval-only refresh lifecycle
 
 **Requirements:**
 
