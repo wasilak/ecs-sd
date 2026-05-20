@@ -282,4 +282,22 @@ mod tests {
 
         assert_eq!(delay.as_secs(), 1);
     }
+
+    #[test]
+    fn ttl_refresh_loop_uses_skip_missed_tick_behavior() {
+        let interval = create_refresh_interval(Duration::from_secs(30));
+
+        assert_eq!(interval.missed_tick_behavior(), MissedTickBehavior::Skip);
+    }
+
+    #[test]
+    fn ttl_refresh_lifecycle_has_no_request_trigger_primitives() {
+        let main_src = include_str!("main.rs");
+        let sd_src = include_str!("handlers/sd.rs");
+
+        for token in ["refresh_trigger", "force_refresh_rx", "try_send"] {
+            assert!(!main_src.contains(token), "main.rs must not contain {token}");
+            assert!(!sd_src.contains(token), "handlers/sd.rs must not contain {token}");
+        }
+    }
 }
