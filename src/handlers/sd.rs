@@ -278,4 +278,34 @@ mod tests {
 
         assert_eq!(header, "7");
     }
+
+    #[test]
+    fn ttl_within_interval_marks_fresh() {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(75);
+        let cache_age_seconds = calculate_cache_age_seconds(last_refresh, now);
+
+        let response = build_sd_response_with_cache_age(vec![], cache_age_seconds);
+        let cache_state = response
+            .headers()
+            .get("X-Cache-State")
+            .expect("X-Cache-State header must be present");
+
+        assert_eq!(cache_state, "fresh");
+    }
+
+    #[test]
+    fn ttl_beyond_interval_marks_stale() {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
+        let cache_age_seconds = calculate_cache_age_seconds(last_refresh, now);
+
+        let response = build_sd_response_with_cache_age(vec![], cache_age_seconds);
+        let cache_state = response
+            .headers()
+            .get("X-Cache-State")
+            .expect("X-Cache-State header must be present");
+
+        assert_eq!(cache_state, "stale");
+    }
 }
