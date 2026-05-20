@@ -11,6 +11,7 @@ use crate::aws::DiscoveryService;
 pub struct AppState {
     pub cache: Arc<RwLock<HashMap<MetadataLevel, Vec<Target>>>>,
     pub last_refresh: Arc<RwLock<SystemTime>>,
+    pub cache_ttl_seconds: u64,
     pub config: Arc<Config>,
     pub discovery: DiscoveryService,
 }
@@ -28,6 +29,7 @@ impl AppState {
         Ok(Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
             last_refresh: Arc::new(RwLock::new(SystemTime::now())),
+            cache_ttl_seconds: config.refresh_interval.max(1),
             config: Arc::new(config),
             discovery,
         })

@@ -35,8 +35,13 @@ pub async fn sd_handler(
 
     let last_refresh = *state.last_refresh.read().await;
     let cache_age_seconds = calculate_cache_age_seconds(last_refresh, SystemTime::now());
+    let cache_state = if cache_age_seconds > state.cache_ttl_seconds {
+        "stale"
+    } else {
+        "fresh"
+    };
 
-    build_sd_response_with_cache_age(filtered, cache_age_seconds)
+    build_sd_response_with_cache_age(filtered, cache_age_seconds, cache_state)
 }
 
 pub async fn refresh_handler(
@@ -157,11 +162,17 @@ fn calculate_cache_age_seconds(last_refresh: SystemTime, now: SystemTime) -> u64
         .as_secs()
 }
 
-fn build_sd_response_with_cache_age(targets: Vec<Target>, cache_age_seconds: u64) -> Response {
+fn build_sd_response_with_cache_age(
+    targets: Vec<Target>,
+    cache_age_seconds: u64,
+    cache_state: &'static str,
+) -> Response {
     let mut headers = HeaderMap::new();
     let header_value = HeaderValue::from_str(&cache_age_seconds.to_string())
         .unwrap_or_else(|_| HeaderValue::from_static("0"));
     headers.insert("X-Cache-Age", header_value);
+    let state_header_value = HeaderValue::from_static(cache_state);
+    headers.insert("X-Cache-State", state_header_value);
 
     (headers, Json(targets)).into_response()
 }
@@ -270,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_sd_response_includes_cache_age_header() {
-        let response = build_sd_response_with_cache_age(vec![], 7);
+        let response = build_sd_response_with_cache_age(vec![], 7, "fresh");
         let header = response
             .headers()
             .get("X-Cache-Age")
@@ -285,7 +296,9 @@ mod tests {
         let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(75);
         let cache_age_seconds = calculate_cache_age_seconds(last_refresh, now);
 
-        let response = build_sd_response_with_cache_age(vec![], cache_age_seconds);
+        let cache_state = if cache_age_seconds > 30 { "stale" } else { "fresh" };
+
+        let response = build_sd_response_with_cache_age(vec![], cache_age_seconds, cache_state);
         let cache_state = response
             .headers()
             .get("X-Cache-State")
@@ -300,7 +313,9 @@ mod tests {
         let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
         let cache_age_seconds = calculate_cache_age_seconds(last_refresh, now);
 
-        let response = build_sd_response_with_cache_age(vec![], cache_age_seconds);
+        let cache_state = if cache_age_seconds > 30 { "stale" } else { "fresh" };
+
+        let response = build_sd_response_with_cache_age(vec![], cache_age_seconds, cache_state);
         let cache_state = response
             .headers()
             .get("X-Cache-State")
