@@ -12,7 +12,7 @@
 |-------|------|------|--------------|-------------|
 | 1 | Core Discovery & HTTP API | Implement ECS discovery and basic HTTP endpoints | DISC-01..06, HTTP-01..04 | Large |
 | 2 | Metadata Labels | Implement all metadata levels with configuration | META-01..16 | Large |
-| 3 | Caching & Configuration | Add caching layer and CLI configuration | CACHE-01..06, CONF-01..06 | Medium |
+| 3 | Caching & Configuration | 1/2 | In Progress|  |
 | 4 | Observability & Logging | Add structured JSON logging and instrumentation | OBS-01..04 | Small |
 | 5 | Packaging & CI/CD | Docker, GHCR, GitHub Actions workflow | PKG-01..03, QUAL-01..05 | Medium |
 
@@ -122,12 +122,12 @@
 
 **Goal:** Background refresh with stale-while-revalidate and full CLI configuration
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — CLI/env configuration parsing, validation, and startup wiring
+- [x] 03-01-PLAN.md — CLI/env configuration parsing, validation, and startup wiring
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
