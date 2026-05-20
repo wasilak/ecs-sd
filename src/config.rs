@@ -89,10 +89,46 @@ impl Config {
     }
 
     fn try_from_args(args: Args) -> Result<Self, ConfigError> {
-        let _ = args;
-        Err(ConfigError::InvalidValue(
-            "config parsing not implemented".to_string(),
-        ))
+        let clusters: Vec<String> = args
+            .clusters
+            .split(',')
+            .map(str::trim)
+            .filter(|cluster| !cluster.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+
+        if clusters.is_empty() {
+            return Err(ConfigError::InvalidValue(
+                "clusters must contain at least one non-empty entry".to_string(),
+            ));
+        }
+
+        args.listen.parse::<SocketAddr>().map_err(|_| {
+            ConfigError::InvalidValue(format!(
+                "listen must be a valid socket address, got '{}'",
+                args.listen
+            ))
+        })?;
+
+        if args.refresh_interval <= Duration::ZERO {
+            return Err(ConfigError::InvalidValue(
+                "refresh interval must be greater than 0".to_string(),
+            ));
+        }
+
+        let refresh_interval = args.refresh_interval.as_secs();
+        if refresh_interval == 0 {
+            return Err(ConfigError::InvalidValue(
+                "refresh interval must be at least 1 second".to_string(),
+            ));
+        }
+
+        Ok(Self {
+            clusters,
+            listen: args.listen,
+            refresh_interval,
+            metadata_level: args.metadata_level,
+        })
     }
 }
 
