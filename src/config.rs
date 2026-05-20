@@ -1,4 +1,50 @@
+use std::ffi::OsString;
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
+
+use clap::Parser;
+
+use crate::error::ConfigError;
 use crate::models::MetadataLevel;
+
+#[derive(Parser, Debug, Clone)]
+#[command(name = "ecs-sd", about = "ECS Prometheus Service Discovery")]
+pub struct Args {
+    #[arg(
+        long,
+        env = "ECS_SD_CLUSTERS",
+        required = true,
+        help = "Comma-separated list of ECS cluster names or ARNs"
+    )]
+    pub clusters: String,
+
+    #[arg(
+        long,
+        env = "ECS_SD_LISTEN",
+        default_value = "0.0.0.0:8080",
+        help = "Socket address to bind (host:port)"
+    )]
+    pub listen: String,
+
+    #[arg(
+        long,
+        env = "ECS_SD_REFRESH_INTERVAL",
+        default_value = "60s",
+        value_parser = humantime::parse_duration,
+        help = "Background refresh interval (e.g. 30s, 5m)"
+    )]
+    pub refresh_interval: Duration,
+
+    #[arg(
+        long,
+        env = "ECS_SD_METADATA_LEVEL",
+        default_value = "task",
+        value_parser = parse_metadata_level,
+        help = "Metadata level: container, task, service, cluster, aws"
+    )]
+    pub metadata_level: MetadataLevel,
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -25,5 +71,132 @@ impl Config {
             clusters,
             ..Default::default()
         }
+    }
+
+    pub fn from_process_args() -> Result<Self, ConfigError> {
+        Self::from_iter(std::env::args_os())
+    }
+
+    pub fn from_iter<I, T>(iter: I) -> Result<Self, ConfigError>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString> + Clone,
+    {
+        let args = Args::try_parse_from(iter)
+            .map_err(|err| ConfigError::InvalidValue(err.to_string()))?;
+
+        Self::try_from_args(args)
+    }
+
+    fn try_from_args(args: Args) -> Result<Self, ConfigError> {
+        let _ = args;
+        Err(ConfigError::InvalidValue(
+            "config parsing not implemented".to_string(),
+        ))
+    }
+}
+
+fn parse_metadata_level(input: &str) -> Result<MetadataLevel, String> {
+    MetadataLevel::from_str(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Mutex, OnceLock};
+
+    use super::*;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn cli_overrides_env_refresh_interval() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::set_var("ECS_SD_CLUSTERS", "from-env");
+            std::env::set_var("ECS_SD_REFRESH_INTERVAL", "120s");
+            std::env::remove_var("ECS_SD_LISTEN");
+            std::env::remove_var("ECS_SD_METADATA_LEVEL");
+        }
+
+        let result = Config::from_iter(["ecs-sd", "--clusters", "from-cli", "--refresh-interval", "30s"])
+            .expect("config parsing should succeed");
+
+        assert_eq!(result.clusters, vec!["from-cli"]);
+        assert_eq!(result.refresh_interval, 30);
+
+        unsafe {
+            std::env::remove_var("ECS_SD_CLUSTERS");
+            std::env::remove_var("ECS_SD_REFRESH_INTERVAL");
+        }
+    }
+
+    #[test]
+    fn uses_env_when_cli_absent() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::set_var("ECS_SD_CLUSTERS", "prod,staging");
+            std::env::set_var("ECS_SD_LISTEN", "127.0.0.1:18080");
+            std::env::set_var("ECS_SD_REFRESH_INTERVAL", "45s");
+            std::env::set_var("ECS_SD_METADATA_LEVEL", "service");
+        }
+
+        let result = Config::from_iter(["ecs-sd"]).expect("config parsing should succeed");
+
+        assert_eq!(result.clusters, vec!["prod", "staging"]);
+        assert_eq!(result.listen, "127.0.0.1:18080");
+        assert_eq!(result.refresh_interval, 45);
+        assert_eq!(result.metadata_level, MetadataLevel::Service);
+
+        unsafe {
+            std::env::remove_var("ECS_SD_CLUSTERS");
+            std::env::remove_var("ECS_SD_LISTEN");
+            std::env::remove_var("ECS_SD_REFRESH_INTERVAL");
+            std::env::remove_var("ECS_SD_METADATA_LEVEL");
+        }
+    }
+
+    #[test]
+    fn uses_defaults_when_optional_values_absent() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::set_var("ECS_SD_CLUSTERS", "prod");
+            std::env::remove_var("ECS_SD_LISTEN");
+            std::env::remove_var("ECS_SD_REFRESH_INTERVAL");
+            std::env::remove_var("ECS_SD_METADATA_LEVEL");
+        }
+
+        let result = Config::from_iter(["ecs-sd"]).expect("config parsing should succeed");
+
+        assert_eq!(result.clusters, vec!["prod"]);
+        assert_eq!(result.listen, "0.0.0.0:8080");
+        assert_eq!(result.refresh_interval, 60);
+        assert_eq!(result.metadata_level, MetadataLevel::Task);
+
+        unsafe {
+            std::env::remove_var("ECS_SD_CLUSTERS");
+        }
+    }
+
+    #[test]
+    fn rejects_empty_clusters() {
+        let error = Config::from_iter(["ecs-sd", "--clusters", " , , "]).expect_err("should reject empty clusters");
+        assert!(error.to_string().contains("clusters must contain at least one non-empty entry"));
+    }
+
+    #[test]
+    fn rejects_invalid_listen_address() {
+        let error = Config::from_iter(["ecs-sd", "--clusters", "prod", "--listen", "bad-listen"])
+            .expect_err("should reject invalid listen");
+        assert!(error.to_string().contains("listen must be a valid socket address"));
+    }
+
+    #[test]
+    fn rejects_zero_refresh_interval() {
+        let error = Config::from_iter(["ecs-sd", "--clusters", "prod", "--refresh-interval", "0s"])
+            .expect_err("should reject zero refresh interval");
+        assert!(error.to_string().contains("refresh interval must be greater than 0"));
     }
 }
