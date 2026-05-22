@@ -4,10 +4,17 @@ on:
   push:
     branches: [main]
     tags:
-      - "v*"
+      - "*"
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   test:
@@ -15,50 +22,70 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          target: x86_64-unknown-linux-gnu
 
       - name: Test
         run: cargo test
 
-  build:
+  release:
     needs: test
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
+    if: github.actor != 'renovate[bot]'
+    name: Release - ${{ matrix.platform.os-name }}
     strategy:
       matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
+        platform:
+          - os-name: Linux-x86_64
+            runs-on: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+
+          - os-name: Linux-aarch64
+            runs-on: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+
+          - os-name: macOS-x86_64
+            runs-on: macos-latest
+            target: x86_64-apple-darwin
+
+          - os-name: macOS-aarch64
+            runs-on: macos-latest
+            target: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.platform.runs-on }}
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        uses: houseabsolute/actions-rust-cross@v1
         with:
-          targets: ${{ matrix.target }}
+          target: ${{ matrix.platform.target }}
 
-      - name: Install cross-linker (arm64)
-        if: contains(matrix.target, 'aarch64')
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install dependencies for MUSL & OpenSSL (Linux Only)
+        if: contains(matrix.platform.target, 'linux-musl')
+        run: sudo apt update && sudo apt install -y musl-tools pkg-config libssl-dev
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-
-      - name: Package
+      - name: Set environment variables for OpenSSL (Linux MUSL Only)
+        if: contains(matrix.platform.target, 'linux-musl')
         run: |
-          cp "target/${{ matrix.target }}/release/ecs-sd" "ecs-sd-${{ matrix.target }}"
-          gzip "ecs-sd-${{ matrix.target }}"
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_SYSROOT_DIR=/" >> $GITHUB_ENV
 
-      - name: Release
-        uses: softprops/action-gh-release@v2
+      - name: Build binary (Cross-Compile)
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: "--locked --release"
+          strip: true
+
+      - name: Publish Artifacts and Release
+        uses: houseabsolute/actions-rust-release@v0
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          generate_release_notes: true
-          files: ecs-sd-*.gz
+          executable-name: ecs-sd
+          target: ${{ matrix.platform.target }}
+          changes-file: ""
