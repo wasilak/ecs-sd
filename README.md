@@ -8,22 +8,18 @@ Drop it in, point Prometheus at it, and it finds every container with `prometheu
 
 ## How It Works
 
-```
-┌──────────────┐     ┌──────────────────┐     ┌──────────────────────────┐
-│  Prometheus  │────▶│  ecs-sd          │────▶│  AWS ECS / EC2 API      │
-│  (scraper)   │     │  HTTP Server      │     │  (background refresh    │
-│              │◀────│  :8080            │     │   with jitter)          │
-└──────────────┘     │                  │     └──────────────────────────┘
-        │            │  ┌────────────┐  │
-        │            │  │ In-Memory  │  │
-        │            │  │ Cache      │  │
-        │            │  │ (5 levels) │  │
-        │            │  └────────────┘  │
-        ▼            └──────────────────┘
-┌──────────────┐
-│ ECS Tasks    │  ←──  docker label:  prometheus.io/scrape=true
-│              │       docker label:  prometheus.io/port=9464
-└──────────────┘
+```mermaid
+flowchart LR
+    P["Prometheus /<br/>VictoriaMetrics"]
+    E["ecs-sd<br/>:8080"]
+    AWS["AWS ECS / EC2 API<br/>(background refresh with jitter)"]
+    C["In-Memory Cache<br/>(5 levels)"]
+    T["ECS Tasks<br/>prometheus.io/scrape=true<br/>prometheus.io/port=9464"]
+
+    P -->|GET /sd| E
+    E -->|describe services/tasks/instances| AWS
+    E <--> C
+    P -->|scrape metrics| T
 ```
 
 On startup, `ecs-sd` crawls your ECS clusters — enumerating services, tasks, and task definitions — then resolves EC2 private IPs for every container carrying `prometheus.io/scrape=true` and `prometheus.io/port` labels. Results are cached in memory across 5 metadata levels and refreshed in the background with random jitter to avoid thundering herd.
@@ -138,12 +134,15 @@ Triggers an immediate full cache refresh. Returns updated targets.
 
 5 hierarchical levels, each including all levels below it:
 
-```
-aws       ─── region, account_id, availability_zone
-  └── cluster   ─── cluster_name, cluster_arn
-       └── service   ─── service_name, desired_count, running_count
-            └── task   ─── task_arn, task_family, task_version
-                 └── container   ─── container_name, container_image, metrics_port
+```mermaid
+flowchart LR
+    A["aws<br/>region, account_id, az"]
+    C["cluster<br/>cluster_name, cluster_arn"]
+    S["service<br/>service_name, desired_count, running_count"]
+    T["task<br/>task_arn, task_family, task_version"]
+    CO["container<br/>container_name, container_image, metrics_port"]
+
+    A --> C --> S --> T --> CO
 ```
 
 Control the level with `--metadata-level` (default: `task`) or per-request with `?level=`.
