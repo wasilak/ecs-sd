@@ -94,7 +94,7 @@ pub async fn refresh_handler(
 }
 
 /// Filter target labels to only include those for the specified level
-fn filter_labels_by_level(target: &Target, level: MetadataLevel) -> Target {
+pub(crate) fn filter_labels_by_level(target: &Target, level: MetadataLevel) -> Target {
     let filtered_labels: HashMap<String, String> = target
         .labels
         .iter()
@@ -104,7 +104,7 @@ fn filter_labels_by_level(target: &Target, level: MetadataLevel) -> Target {
                 MetadataLevel::Container
             } else if key.starts_with("__meta_ecs_task_") {
                 MetadataLevel::Task
-            } else if key.starts_with("__meta_ecs_service_") {
+            } else if key.starts_with("__meta_ecs_service_") || *key == "__meta_ecs_service" {
                 MetadataLevel::Service
             } else if key.starts_with("__meta_ecs_cluster_") {
                 MetadataLevel::Cluster

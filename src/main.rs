@@ -8,7 +8,6 @@ mod handlers;
 
 use axum::Router;
 use rand::Rng;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
 use tokio::signal;
@@ -18,6 +17,7 @@ use tracing::info;
 use tracing::warn;
 
 use crate::config::Config;
+use crate::handlers::sd::filter_labels_by_level;
 use crate::models::{MetadataLevel, Target};
 use crate::state::AppState;
 
@@ -100,38 +100,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Server shut down gracefully");
     Ok(())
-}
-
-/// Filter target labels to only include those for the specified level
-fn filter_labels_by_level(target: &Target, level: MetadataLevel) -> Target {
-    let filtered_labels: HashMap<String, String> = target
-        .labels
-        .iter()
-        .filter(|(key, _)| {
-            // Determine which level this label belongs to based on prefix
-            let label_level = if key.starts_with("__meta_ecs_container_") || *key == "__meta_ecs_metrics_port" {
-                MetadataLevel::Container
-            } else if key.starts_with("__meta_ecs_task_") {
-                MetadataLevel::Task
-            } else if key.starts_with("__meta_ecs_service_") {
-                MetadataLevel::Service
-            } else if key.starts_with("__meta_ecs_cluster_") {
-                MetadataLevel::Cluster
-            } else if key.starts_with("__meta_ecs_") {
-                MetadataLevel::Aws
-            } else {
-                MetadataLevel::Container // Default for unknown labels
-            };
-            
-            level.includes(label_level)
-        })
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    
-    Target {
-        targets: target.targets.clone(),
-        labels: filtered_labels,
-    }
 }
 
 fn spawn_background_refresh(

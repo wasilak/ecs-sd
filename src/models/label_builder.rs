@@ -90,6 +90,28 @@ fn sanitize_tag_key(key: &str) -> String {
         .to_lowercase()
 }
 
+/// Extract the task definition revision number from an ARN suffix.
+/// `arn:aws:ecs:...:task-definition/family:42` -> `"42"`.
+pub(crate) fn extract_task_version(definition_arn: &str) -> &str {
+    definition_arn.split(':').last().unwrap_or("unknown")
+}
+
+/// Parse the `prometheus.io/scheme` and `prometheus.io/path` docker labels,
+/// returning `(scheme, metrics_path)` with defaults `("http", "/metrics")`.
+pub(crate) fn parse_prometheus_labels(
+    docker_labels: Option<&std::collections::HashMap<String, String>>,
+) -> (String, String) {
+    let scheme = docker_labels
+        .and_then(|l| l.get("prometheus.io/scheme"))
+        .cloned()
+        .unwrap_or_else(|| "http".to_string());
+    let metrics_path = docker_labels
+        .and_then(|l| l.get("prometheus.io/path"))
+        .cloned()
+        .unwrap_or_else(|| "/metrics".to_string());
+    (scheme, metrics_path)
+}
+
 impl LabelBuilder {
     pub fn new(level: MetadataLevel) -> Self {
         Self {
@@ -105,17 +127,7 @@ impl LabelBuilder {
     }
 
     pub fn with_container(mut self, def: &ContainerDefinition, port: u16) -> Self {
-        let scheme = def
-            .docker_labels()
-            .and_then(|l| l.get("prometheus.io/scheme"))
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "http".to_string());
-
-        let metrics_path = def
-            .docker_labels()
-            .and_then(|l| l.get("prometheus.io/path"))
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "/metrics".to_string());
+        let (scheme, metrics_path) = parse_prometheus_labels(def.docker_labels());
 
         self.container_data = Some(ContainerData {
             name: def.name().unwrap_or("unknown").to_string(),
@@ -142,11 +154,7 @@ impl LabelBuilder {
             .unwrap_or("unknown")
             .to_string();
 
-        let version = definition_arn
-            .split(':')
-            .last()
-            .unwrap_or("unknown")
-            .to_string();
+        let version = extract_task_version(&definition_arn).to_string();
 
         self.task_data = Some(TaskData {
             arn: task.task_arn().unwrap_or("unknown").to_string(),

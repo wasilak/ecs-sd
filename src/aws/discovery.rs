@@ -229,10 +229,7 @@ impl DiscoveryService {
                                         )
                                         .build();
 
-                                    targets.push(Target {
-                                        targets: vec![format!("{}:{}", ec2.private_ip, port)],
-                                        labels,
-                                    });
+                                    targets.push(Target::new(&ec2.private_ip, port, labels));
                                 }
                                 Err(e) => {
                                     warn!("Failed to resolve EC2 instance for task: {}", e);

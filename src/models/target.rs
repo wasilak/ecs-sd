@@ -8,4 +8,12 @@ pub struct Target {
 }
 
 impl Target {
+    /// Construct a Target from an IP, port, and label set.
+    /// Produces a single-entry `targets` vector formatted as `"{ip}:{port}"`.
+    pub fn new(ip: &str, port: u16, labels: HashMap<String, String>) -> Self {
+        Self {
+            targets: vec![format!("{}:{}", ip, port)],
+            labels,
+        }
+    }
 }
