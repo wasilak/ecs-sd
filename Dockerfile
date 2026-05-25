@@ -1,16 +1,18 @@
-FROM rust:alpine AS builder
-
-RUN apk add --no-cache musl-dev
+FROM rust:bookworm AS builder
 
 WORKDIR /build
+
+# Dependency caching: build only deps first using a stub main.
 COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-
+RUN mkdir src && echo 'fn main() {}' > src/main.rs
 RUN cargo build --release
+RUN rm -f target/release/ecs-sd target/release/deps/ecs_sd*
 
-FROM alpine:3.20
+# Build the real binary; deps layer is reused as long as manifests are unchanged.
+COPY src ./src
+RUN touch src/main.rs && cargo build --release
 
-RUN apk add --no-cache ca-certificates
+FROM gcr.io/distroless/cc-debian12
 
 COPY --from=builder /build/target/release/ecs-sd /ecs-sd
 
