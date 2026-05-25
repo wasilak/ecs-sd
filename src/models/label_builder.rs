@@ -430,4 +430,67 @@ mod tests {
         assert!(!labels.contains_key("__meta_ecs_ec2_instance_id"));
         assert!(!labels.contains_key("__meta_ecs_tag_ec2_name"));
     }
+
+    #[test]
+    fn test_parse_prometheus_labels_defaults() {
+        let (scheme, path) = parse_prometheus_labels(None);
+        assert_eq!(scheme, "http");
+        assert_eq!(path, "/metrics");
+
+        let empty: HashMap<String, String> = HashMap::new();
+        let (scheme, path) = parse_prometheus_labels(Some(&empty));
+        assert_eq!(scheme, "http");
+        assert_eq!(path, "/metrics");
+    }
+
+    #[test]
+    fn test_parse_prometheus_labels_custom() {
+        let mut labels = HashMap::new();
+        labels.insert("prometheus.io/scheme".to_string(), "https".to_string());
+        labels.insert("prometheus.io/path".to_string(), "/custom/metrics".to_string());
+
+        let (scheme, path) = parse_prometheus_labels(Some(&labels));
+        assert_eq!(scheme, "https");
+        assert_eq!(path, "/custom/metrics");
+    }
+
+    #[test]
+    fn test_extract_task_version() {
+        assert_eq!(
+            extract_task_version("arn:aws:ecs:us-east-1:123456789:task-definition/my-task:42"),
+            "42"
+        );
+        assert_eq!(extract_task_version("unknown"), "unknown");
+        // `split(':').last()` on a string with no ':' returns the whole string.
+        assert_eq!(extract_task_version("plain"), "plain");
+        // Empty input: `split(':').last()` returns `Some("")`.
+        assert_eq!(extract_task_version(""), "");
+    }
+
+    #[test]
+    fn test_aws_labels_without_az() {
+        let labels = LabelBuilder::new(MetadataLevel::Aws)
+            .with_aws("us-east-1", "123456789012", None)
+            .build();
+        assert_eq!(
+            labels.get("__meta_ecs_region").map(String::as_str),
+            Some("us-east-1")
+        );
+        assert_eq!(
+            labels.get("__meta_ecs_account_id").map(String::as_str),
+            Some("123456789012")
+        );
+        assert!(!labels.contains_key("__meta_ecs_availability_zone"));
+    }
+
+    #[test]
+    fn test_aws_labels_with_az() {
+        let labels = LabelBuilder::new(MetadataLevel::Aws)
+            .with_aws("eu-west-1", "999999999999", Some("eu-west-1a"))
+            .build();
+        assert_eq!(
+            labels.get("__meta_ecs_availability_zone").map(String::as_str),
+            Some("eu-west-1a")
+        );
+    }
 }

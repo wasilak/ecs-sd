@@ -325,4 +325,73 @@ mod tests {
 
         assert_eq!(cache_state, "stale");
     }
+
+    #[test]
+    fn test_filter_labels_by_level_preserves_prometheus_specials() {
+        let mut labels = HashMap::new();
+        labels.insert("__scheme__".to_string(), "https".to_string());
+        labels.insert("__metrics_path__".to_string(), "/custom".to_string());
+        labels.insert("__meta_ecs_task_arn".to_string(), "arn:task".to_string());
+        labels.insert("__meta_ecs_service".to_string(), "api".to_string());
+
+        let target = Target {
+            targets: vec!["10.0.0.1:9090".to_string()],
+            labels,
+        };
+
+        // Container level: scheme/path retained, task and service labels filtered out.
+        let container = filter_labels_by_level(&target, MetadataLevel::Container);
+        assert!(container.labels.contains_key("__scheme__"));
+        assert!(container.labels.contains_key("__metrics_path__"));
+        assert!(!container.labels.contains_key("__meta_ecs_task_arn"));
+        assert!(!container.labels.contains_key("__meta_ecs_service"));
+
+        // Task level: scheme/path + task label retained, service label filtered out.
+        let task = filter_labels_by_level(&target, MetadataLevel::Task);
+        assert!(task.labels.contains_key("__scheme__"));
+        assert!(task.labels.contains_key("__meta_ecs_task_arn"));
+        assert!(!task.labels.contains_key("__meta_ecs_service"));
+
+        // Service level: __meta_ecs_service IS now retained (bug fix from Wave 2).
+        let service = filter_labels_by_level(&target, MetadataLevel::Service);
+        assert!(
+            service.labels.contains_key("__meta_ecs_service"),
+            "__meta_ecs_service must be classified as Service level (Wave 2 bug fix)"
+        );
+        assert!(service.labels.contains_key("__meta_ecs_task_arn"));
+    }
+
+    #[test]
+    fn test_cache_age_exactly_at_ttl_is_fresh() {
+        // The handler uses `cache_age > ttl` (strict >), so age == ttl is fresh.
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(70);
+        let age = calculate_cache_age_seconds(last_refresh, now);
+        assert_eq!(age, 30);
+
+        let ttl = 30u64;
+        let state = if age > ttl { "stale" } else { "fresh" };
+        assert_eq!(state, "fresh", "age == ttl must be classified as fresh");
+    }
+
+    #[test]
+    fn test_cache_age_one_second_past_ttl_is_stale() {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(69);
+        let age = calculate_cache_age_seconds(last_refresh, now);
+        assert_eq!(age, 31);
+
+        let ttl = 30u64;
+        let state = if age > ttl { "stale" } else { "fresh" };
+        assert_eq!(state, "stale");
+    }
+
+    #[test]
+    fn test_cache_age_clock_skew_returns_zero() {
+        // now < last_refresh: duration_since returns Err, .unwrap_or_default() yields 0.
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(50);
+        let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let age = calculate_cache_age_seconds(last_refresh, now);
+        assert_eq!(age, 0);
+    }
 }
