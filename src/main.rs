@@ -24,7 +24,10 @@ use crate::state::AppState;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     info!("Starting ecs-sd server");
 
