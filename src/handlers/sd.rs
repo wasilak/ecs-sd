@@ -4,6 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use crate::config::Mode;
 use crate::state::AppState;
 use crate::models::{MetadataLevel, SdQueryParams, Target};
 use serde_json::json;
@@ -54,7 +55,7 @@ pub async fn refresh_handler(
     info!("Manual discovery refresh triggered");
 
     // Discover at full Aws level
-    let targets_aws = state.discovery.discover_all_clusters(&clusters).await;
+    let targets_aws = state.discovery.discover_all_clusters(&clusters, Mode::Discovery).await;
     let count = targets_aws.len();
 
     // Derive all cache tiers from Aws-level targets

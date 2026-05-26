@@ -1,3 +1,4 @@
+use crate::config::Mode;
 use crate::error::DiscoveryError;
 use crate::models::{LabelBuilder, MetadataLevel, Target};
 use aws_sdk_ecs::types::{ClusterField, LaunchType, ServiceField, TaskField};
@@ -61,13 +62,13 @@ impl DiscoveryService {
         })
     }
 
-    pub async fn discover_all_clusters(&self, cluster_names: &[String]) -> Vec<Target> {
+    pub async fn discover_all_clusters(&self, cluster_names: &[String], mode: Mode) -> Vec<Target> {
         let mut all_targets = Vec::new();
 
         for cluster_name in cluster_names {
             info!("Discovering cluster: {}", cluster_name);
 
-            match self.discover_cluster_targets(cluster_name).await {
+            match self.discover_cluster_targets(cluster_name, mode.clone()).await {
                 Ok(targets) => {
                     info!(
                         "Cluster {}: discovered {} targets",
@@ -89,6 +90,7 @@ impl DiscoveryService {
     async fn discover_cluster_targets(
         &self,
         cluster_name: &str,
+        mode: Mode,
     ) -> Result<Vec<Target>, DiscoveryError> {
         let mut targets = Vec::new();
 
@@ -146,7 +148,78 @@ impl DiscoveryService {
 
                     for task in tasks.tasks() {
                         if task.launch_type() != Some(&LaunchType::Ec2) {
-                            debug!("Skipping non-EC2 task: {:?}", task.task_arn());
+                            if mode == Mode::Proxy && task.launch_type() == Some(&LaunchType::Fargate) {
+                                // Fargate: extract private IP from ENI, build target without EC2 metadata
+                                if let Some(private_ip) = extract_fargate_private_ip(task) {
+                                    // Fargate tasks always use awsvpc network mode
+                                    let network_mode = "awsvpc".to_string();
+
+                                    let task_def_arn = match task.task_definition_arn() {
+                                        Some(a) => a,
+                                        None => {
+                                            warn!("Fargate task {:?} has no task_definition_arn", task.task_arn());
+                                            continue;
+                                        }
+                                    };
+                                    let task_def_resp = match self.ecs_client
+                                        .describe_task_definition()
+                                        .task_definition(task_def_arn)
+                                        .send()
+                                        .await
+                                    {
+                                        Ok(r) => r,
+                                        Err(e) => {
+                                            warn!("Failed to describe Fargate task def: {}", e);
+                                            continue;
+                                        }
+                                    };
+                                    let Some(task_def) = task_def_resp.task_definition() else {
+                                        continue;
+                                    };
+
+                                    for container_def in task_def.container_definitions() {
+                                        let should_scrape = container_def
+                                            .docker_labels()
+                                            .and_then(|l| l.get("prometheus.io/scrape"))
+                                            .map(|v| v == "true")
+                                            .unwrap_or(false);
+                                        if !should_scrape {
+                                            continue;
+                                        }
+
+                                        let port = match container_def
+                                            .docker_labels()
+                                            .and_then(|l| l.get("prometheus.io/port"))
+                                            .and_then(|p| p.parse::<u16>().ok())
+                                        {
+                                            Some(p) => p,
+                                            None => {
+                                                warn!(
+                                                    "Fargate container {} has scrape=true but no valid port label",
+                                                    container_def.name().unwrap_or("unknown")
+                                                );
+                                                continue;
+                                            }
+                                        };
+
+                                        let labels = LabelBuilder::new(MetadataLevel::Aws)
+                                            .with_container(container_def, port)
+                                            .with_network(private_ip, &network_mode, None)
+                                            .with_task(task, task_def)
+                                            .with_service(service)
+                                            .with_cluster(cluster)
+                                            .with_aws(&self.region, &self.account_id, None)
+                                            // with_ec2_instance intentionally omitted: Fargate has no container instance
+                                            .build();
+
+                                        targets.push(Target::new(private_ip, port, labels));
+                                    }
+                                } else {
+                                    warn!("Fargate task {:?} has no ENI private IP, skipping", task.task_arn());
+                                }
+                            } else {
+                                debug!("Skipping non-EC2/non-Fargate task: {:?}", task.task_arn());
+                            }
                             continue;
                         }
 

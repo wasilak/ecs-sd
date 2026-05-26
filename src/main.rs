@@ -16,7 +16,7 @@ use tokio::time::MissedTickBehavior;
 use tracing::info;
 use tracing::warn;
 
-use crate::config::Config;
+use crate::config::{Config, Mode};
 use crate::handlers::sd::filter_labels_by_level;
 use crate::models::{MetadataLevel, Target};
 use crate::state::AppState;
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform initial discovery to populate all cache tiers
     info!("Performing initial discovery...");
-    let targets_aws = state.discovery.discover_all_clusters(&config.clusters).await;
+    let targets_aws = state.discovery.discover_all_clusters(&config.clusters, Mode::Discovery).await;
     replace_cache_levels_and_refresh_time(&state, targets_aws).await;
 
     info!("Initial discovery complete");
@@ -162,7 +162,7 @@ async fn refresh_cache_once(state: &AppState) -> Result<usize, String> {
 
     let targets_aws = state
         .discovery
-        .discover_all_clusters(&state.config.clusters)
+        .discover_all_clusters(&state.config.clusters, Mode::Discovery)
         .await;
     let target_count = targets_aws.len();
 
