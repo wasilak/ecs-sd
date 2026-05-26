@@ -1,0 +1,41 @@
+# docker-compose.cluster.yml
+# Three-node ecs-sd cluster for local testing
+# Each node can serve /sd requests; only the leader discovers from AWS
+# Usage: docker-compose -f docker-compose.cluster.yml up
+version: '3.8'
+services:
+  ecs-sd-1:
+    image: ghcr.io/wasilak/ecs-sd
+    environment:
+      ECS_SD_CLUSTERS: my-cluster
+      ECS_SD_CLUSTER_MODE: cluster
+      ECS_SD_CLUSTER_SEEDS: ecs-sd-2:8081,ecs-sd-3:8081
+      ECS_SD_NODE_ID: node-1
+      ECS_SD_GOSSIP_PORT: "8081"
+      # ... AWS credentials
+    ports:
+      - "8080:8080"
+
+  ecs-sd-2:
+    image: ghcr.io/wasilak/ecs-sd
+    environment:
+      ECS_SD_CLUSTERS: my-cluster
+      ECS_SD_CLUSTER_MODE: cluster
+      ECS_SD_CLUSTER_SEEDS: ecs-sd-1:8081,ecs-sd-3:8081
+      ECS_SD_NODE_ID: node-2
+      ECS_SD_GOSSIP_PORT: "8081"
+      # ... AWS credentials
+    ports:
+      - "8081:8080"
+
+  ecs-sd-3:
+    image: ghcr.io/wasilak/ecs-sd
+    environment:
+      ECS_SD_CLUSTERS: my-cluster
+      ECS_SD_CLUSTER_MODE: cluster
+      ECS_SD_CLUSTER_SEEDS: ecs-sd-1:8081,ecs-sd-2:8081
+      ECS_SD_NODE_ID: node-3
+      ECS_SD_GOSSIP_PORT: "8081"
+      # ... AWS credentials
+    ports:
+      - "8082:8080"
