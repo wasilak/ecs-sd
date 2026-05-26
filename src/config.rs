@@ -8,6 +8,13 @@ use clap::Parser;
 use crate::error::ConfigError;
 use crate::models::MetadataLevel;
 
+#[derive(Debug, Clone, PartialEq, Default, clap::ValueEnum)]
+pub enum Mode {
+    #[default]
+    Discovery,
+    Proxy,
+}
+
 #[derive(Parser, Debug, Clone)]
 #[command(name = "ecs-sd", about = "ECS Prometheus Service Discovery")]
 pub struct Args {
@@ -44,6 +51,21 @@ pub struct Args {
         help = "Metadata level: container, task, service, cluster, aws"
     )]
     pub metadata_level: MetadataLevel,
+
+    #[arg(
+        long,
+        env = "ECS_SD_MODE",
+        default_value = "discovery",
+        help = "Operating mode: discovery (default) or proxy"
+    )]
+    pub mode: Mode,
+
+    #[arg(
+        long,
+        env = "ECS_SD_PUBLIC_ADDRESS",
+        help = "Reachable address of this ecs-sd instance (required in proxy mode)"
+    )]
+    pub public_address: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +74,8 @@ pub struct Config {
     pub listen: String,
     pub refresh_interval: u64,
     pub metadata_level: MetadataLevel,
+    pub mode: Mode,
+    pub public_address: Option<String>,
 }
 
 impl Default for Config {
@@ -61,6 +85,8 @@ impl Default for Config {
             listen: "0.0.0.0:8080".to_string(),
             refresh_interval: 60,
             metadata_level: MetadataLevel::default(),
+            mode: Mode::Discovery,
+            public_address: None,
         }
     }
 }
@@ -116,11 +142,19 @@ impl Config {
             ));
         }
 
+        if args.mode == Mode::Proxy && args.public_address.is_none() {
+            return Err(ConfigError::InvalidValue(
+                "--public-address / ECS_SD_PUBLIC_ADDRESS is required in proxy mode".to_string(),
+            ));
+        }
+
         Ok(Self {
             clusters,
             listen: args.listen,
             refresh_interval,
             metadata_level: args.metadata_level,
+            mode: args.mode,
+            public_address: args.public_address,
         })
     }
 }
@@ -138,6 +172,88 @@ mod tests {
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn mode_defaults_to_discovery() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::remove_var("ECS_SD_MODE");
+            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
+        }
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.mode, Mode::Discovery);
+    }
+
+    #[test]
+    fn mode_flag_sets_proxy() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::remove_var("ECS_SD_MODE");
+            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
+        }
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "ecs-sd.local:8080"])
+            .expect("should succeed");
+        assert_eq!(config.mode, Mode::Proxy);
+    }
+
+    #[test]
+    fn env_ecs_sd_mode_sets_proxy() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::set_var("ECS_SD_MODE", "proxy");
+            std::env::set_var("ECS_SD_PUBLIC_ADDRESS", "host:8080");
+        }
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.mode, Mode::Proxy);
+        unsafe {
+            std::env::remove_var("ECS_SD_MODE");
+            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
+        }
+    }
+
+    #[test]
+    fn proxy_mode_without_public_address_fails() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::remove_var("ECS_SD_MODE");
+            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
+        }
+        let err = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy"])
+            .expect_err("should fail");
+        assert!(err.to_string().contains("--public-address"), "error was: {err}");
+    }
+
+    #[test]
+    fn proxy_mode_with_public_address_succeeds() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::remove_var("ECS_SD_MODE");
+            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
+        }
+        Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "10.0.0.1:8080"])
+            .expect("should succeed");
+    }
+
+    #[test]
+    fn discovery_mode_without_public_address_ok() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::remove_var("ECS_SD_MODE");
+            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
+        }
+        Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+    }
+
+    #[test]
+    fn invalid_mode_rejected() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::remove_var("ECS_SD_MODE");
+            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
+        }
+        Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "invalid"])
+            .expect_err("should reject unknown mode");
     }
 
     #[test]
