@@ -19,6 +19,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 humantime = "2"
+prometheus = "0.14"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["stream"] }
 uuid = { version = "1", features = ["v5"] }

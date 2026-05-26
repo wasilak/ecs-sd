@@ -6,10 +6,12 @@ mod models;
 mod routes;
 mod handlers;
 mod cluster;
+mod metrics;
 
 use axum::Router;
 use rand::Rng;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tokio::sync::watch;
@@ -82,6 +84,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Initialize metrics state
+    let metrics = Arc::new(crate::metrics::MetricsState::new()
+        .expect("failed to initialize metrics"));
+
     // Create shared state
     let state = AppState::new(
         config.clone(),
@@ -89,7 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ec2_client,
         sts_client,
         region,
-        cluster,  // new final argument
+        cluster,
+        metrics.clone(),
     )
     .await
     .map_err(|e| {

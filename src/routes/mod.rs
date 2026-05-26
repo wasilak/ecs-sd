@@ -1,4 +1,5 @@
 pub mod health;
+pub mod metrics;
 pub mod proxy;
 pub mod sd;
 
@@ -9,6 +10,7 @@ use crate::state::AppState;
 pub fn create_routes() -> Router<AppState> {
     Router::new()
         .merge(health::routes())
+        .merge(metrics::routes())
         .merge(sd::routes())
         .merge(proxy::routes())
 }
