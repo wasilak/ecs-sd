@@ -6,7 +6,7 @@ mod models;
 mod routes;
 mod handlers;
 mod cluster;
-mod metrics;
+pub mod metrics;
 
 use axum::Router;
 use rand::Rng;
@@ -201,12 +201,23 @@ fn spawn_background_refresh(
                     }
 
                     info!("discovery refresh started");
+                    let timer = state.metrics.discovery_duration.start_timer();
                     match refresh_cache_once(&state).await {
                         Ok(target_count) => {
+                            timer.observe_duration();
+                            state.metrics.discovery_targets.set(target_count as f64);
+                            state.metrics.cache_refreshes
+                                .with_label_values(&["success"])
+                                .inc();
                             info!("discovery refresh complete: {} targets", target_count);
                             publish_cache_to_gossip(&state).await;
                         }
                         Err(error) => {
+                            timer.observe_duration();
+                            state.metrics.discovery_errors.inc();
+                            state.metrics.cache_refreshes
+                                .with_label_values(&["error"])
+                                .inc();
                             warn!("discovery refresh failed: {}", error);
                         }
                     }
