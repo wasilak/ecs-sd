@@ -9,6 +9,7 @@ mod cluster;
 pub mod metrics;
 
 use axum::Router;
+use axum::routing::get;
 use rand::Rng;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -133,6 +134,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse bind address
     let addr: SocketAddr = config.listen.parse()?;
     info!("Listening on {}", addr);
+
+    // Optional: spawn separate metrics server if metrics_port is configured
+    let _metrics_handle = if let Some(metrics_port) = config.metrics_port {
+        let metrics_addr: SocketAddr = format!("0.0.0.0:{}", metrics_port).parse()?;
+        info!("Metrics endpoint on {}", metrics_addr);
+
+        let metrics_app = Router::new()
+            .route("/metrics", get(crate::handlers::metrics::metrics_handler))
+            .with_state(state.clone());
+
+        let metrics_listener = tokio::net::TcpListener::bind(metrics_addr).await?;
+        Some(tokio::spawn(async move {
+            if let Err(e) = axum::serve(metrics_listener, metrics_app).await {
+                tracing::error!("metrics server error: {}", e);
+            }
+        }))
+    } else {
+        info!("Metrics endpoint on {}/metrics", addr);
+        None
+    };
 
     // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(addr).await?;

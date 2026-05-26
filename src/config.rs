@@ -103,6 +103,13 @@ pub struct Args {
         help = "Unique node ID in the cluster (defaults to HOSTNAME:gossip_port)"
     )]
     pub node_id: Option<String>,
+
+    #[arg(
+        long,
+        env = "ECS_SD_METRICS_PORT",
+        help = "Optional separate port for /metrics endpoint (defaults to --listen port)"
+    )]
+    pub metrics_port: Option<u16>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +124,7 @@ pub struct Config {
     pub cluster_seeds: Vec<String>,
     pub gossip_port: u16,
     pub node_id: String,
+    pub metrics_port: Option<u16>,
 }
 
 impl Default for Config {
@@ -132,6 +140,7 @@ impl Default for Config {
             cluster_seeds: Vec::new(),
             gossip_port: 8081,
             node_id: "localhost:8081".to_string(),
+            metrics_port: None,
         }
     }
 }
@@ -235,6 +244,7 @@ impl Config {
             cluster_seeds,
             gossip_port: args.gossip_port,
             node_id,
+            metrics_port: args.metrics_port,
         })
     }
 }
@@ -562,5 +572,39 @@ mod tests {
         let err = Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-seeds", "notaport"])
             .expect_err("should fail");
         assert!(err.to_string().contains("invalid cluster seed"), "error was: {err}");
+    }
+
+    #[test]
+    fn metrics_port_defaults_to_none() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.metrics_port, None);
+    }
+
+    #[test]
+    fn metrics_port_overridable_via_flag() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--metrics-port", "9090"])
+            .expect("should succeed");
+        assert_eq!(config.metrics_port, Some(9090));
+    }
+
+    #[test]
+    fn metrics_port_overridable_via_env() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        unsafe {
+            std::env::set_var("ECS_SD_METRICS_PORT", "9091");
+        }
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.metrics_port, Some(9091));
+        unsafe {
+            std::env::remove_var("ECS_SD_METRICS_PORT");
+        }
     }
 }

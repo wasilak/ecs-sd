@@ -59,6 +59,15 @@ fn cache_refreshes_countervec_works() {
 }
 
 #[test]
+fn proxy_duration_histogram_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics.proxy_duration.observe(0.1);
+    let families = metrics.registry.gather();
+    let found = families.iter().any(|f| f.name() == "ecs_sd_proxy_duration_seconds");
+    assert!(found, "proxy_duration should exist");
+}
+
+#[test]
 fn proxy_requests_countervec_works() {
     let metrics = MetricsState::new().unwrap();
     metrics.proxy_requests.with_label_values(&["200"]).inc();

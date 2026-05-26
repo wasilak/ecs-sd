@@ -107,6 +107,9 @@ pub async fn proxy_handler(
     // Strip hop-by-hop headers before forwarding.
     let forwarded = filter_hop_by_hop_headers(headers);
 
+    // Start timer for proxy metrics
+    let timer = state.metrics.proxy_duration.start_timer();
+
     // Send upstream request.
     let upstream_resp = match state
         .http_client
@@ -118,6 +121,10 @@ pub async fn proxy_handler(
     {
         Ok(r) => r,
         Err(e) => {
+            timer.observe_duration();
+            state.metrics.proxy_requests
+                .with_label_values(&["502"])
+                .inc();
             warn!(upstream_url = %upstream_url, error = %e, "upstream request failed");
             return (
                 StatusCode::BAD_GATEWAY,
@@ -129,6 +136,10 @@ pub async fn proxy_handler(
 
     // Stream response back: copy status + headers from upstream.
     let status = upstream_resp.status();
+    timer.observe_duration();
+    state.metrics.proxy_requests
+        .with_label_values(&[&status.as_u16().to_string()])
+        .inc();
     let upstream_headers = upstream_resp.headers().clone();
     let mut resp_builder = Response::builder().status(status);
     *resp_builder.headers_mut().unwrap() = upstream_headers;
