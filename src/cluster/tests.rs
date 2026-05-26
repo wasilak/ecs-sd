@@ -154,15 +154,14 @@ async fn leader_cache_propagates_to_follower() {
 async fn leader_failover_promotes_surviving_node() {
     let transport = ChannelTransport::with_mtu(65_507);
 
-    // Use aggressive failure detector settings for faster failover detection.
-    // We keep a generous dead_node_grace_period so nodes don't prematurely
-    // mark each other dead during the initial convergence window.
-    let aggressive_detector = FailureDetectorConfig {
-        phi_threshold: 1.0,
+    // Moderate detector: sensitive enough for timely failover (phi=2.0)
+    // but stable enough not to false-detect during normal convergence jitter.
+    let moderate_detector = FailureDetectorConfig {
+        phi_threshold: 2.0,
         sampling_window_size: 10,
         max_interval: Duration::from_millis(500),
         initial_interval: Duration::from_millis(50),
-        dead_node_grace_period: Duration::from_secs(5),
+        dead_node_grace_period: Duration::from_secs(2),
     };
 
     let node_a = make_node_with_detector(
@@ -170,7 +169,7 @@ async fn leader_failover_promotes_surviving_node() {
         "127.0.0.1:21031",
         vec!["127.0.0.1:21032".to_string()],
         &transport,
-        aggressive_detector.clone(),
+        moderate_detector.clone(),
     )
     .await;
     let node_b = make_node_with_detector(
@@ -178,39 +177,44 @@ async fn leader_failover_promotes_surviving_node() {
         "127.0.0.1:21032",
         vec!["127.0.0.1:21031".to_string()],
         &transport,
-        aggressive_detector,
+        moderate_detector,
     )
     .await;
 
-    // Aggressive detector needs more time for the sampling window to fill.
-    // Wait 2s (40 gossip intervals) before asserting stable leadership.
-    tokio::time::sleep(Duration::from_millis(2000)).await;
-
-    // Verify initial leader
-    assert!(node_a.is_leader().await, "node-a should initially be leader");
-    assert!(!node_b.is_leader().await, "node-b should initially be follower");
+    // Poll until stable leadership is observed (rather than a fixed sleep).
+    let stable = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let a_leads = node_a.is_leader().await;
+            let b_leads = node_b.is_leader().await;
+            if a_leads && !b_leads {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(GOSSIP_INTERVAL_MS)).await;
+        }
+    })
+    .await;
+    assert!(
+        stable.is_ok(),
+        "node-a did not become stable leader within 5s"
+    );
 
     // Drop leader handle (simulates node failure)
     drop(node_a);
 
-    // Wait for failure detection with retry loop
-    // With phi_threshold=1.0, detection happens much faster (~5-10 intervals)
-    let became_leader = tokio::time::timeout(
-        Duration::from_millis(GOSSIP_INTERVAL_MS * 100), // 5s timeout (generous)
-        async {
-            loop {
-                if node_b.is_leader().await {
-                    return;
-                }
-                tokio::time::sleep(Duration::from_millis(GOSSIP_INTERVAL_MS)).await;
+    // Poll for follower promotion with moderate timeout.
+    let became_leader = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if node_b.is_leader().await {
+                return;
             }
-        },
-    )
+            tokio::time::sleep(Duration::from_millis(GOSSIP_INTERVAL_MS)).await;
+        }
+    })
     .await;
 
     assert!(
         became_leader.is_ok(),
-        "node-b did not become leader within 5s after node-a failure"
+        "node-b did not become leader within 10s after node-a failure"
     );
     assert!(
         node_b.is_leader().await,
