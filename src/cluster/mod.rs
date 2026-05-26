@@ -62,8 +62,7 @@ impl ClusterState {
 ///
 /// This is a private free function so it can be unit-tested without mocking chitchat.
 fn elect_leader<'a>(live_node_ids: &[&'a str]) -> Option<&'a str> {
-    // STUB: intentionally wrong for TDD RED phase
-    None
+    live_node_ids.iter().copied().min()
 }
 
 #[cfg(test)]
