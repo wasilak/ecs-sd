@@ -60,45 +60,10 @@ impl ClusterState {
 
 /// Pure election logic: the leader is the lexicographically smallest node_id.
 ///
-/// This is a private free function so it can be unit-tested without mocking chitchat.
-fn elect_leader<'a>(live_node_ids: &[&'a str]) -> Option<&'a str> {
+/// This is a pub(crate) free function so it can be unit-tested without mocking chitchat.
+pub(crate) fn elect_leader<'a>(live_node_ids: &[&'a str]) -> Option<&'a str> {
     live_node_ids.iter().copied().min()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn leader_is_min_node_id() {
-        assert_eq!(
-            elect_leader(&["node-b", "node-a", "node-c"]),
-            Some("node-a")
-        );
-    }
-
-    #[test]
-    fn single_node_is_leader() {
-        assert_eq!(elect_leader(&["node-x"]), Some("node-x"));
-    }
-
-    #[test]
-    fn empty_cluster_has_no_leader() {
-        assert_eq!(elect_leader(&[]), None);
-    }
-
-    #[test]
-    fn gossip_proxy_target_round_trips_json() {
-        let original = GossipProxyTarget {
-            route_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-            address: "10.0.0.1:8080".to_string(),
-        };
-
-        let json = serde_json::to_string(&original).expect("serialize");
-        let round_tripped: GossipProxyTarget =
-            serde_json::from_str(&json).expect("deserialize");
-
-        assert_eq!(round_tripped.route_id, original.route_id);
-        assert_eq!(round_tripped.address, original.address);
-    }
-}
+mod tests;
