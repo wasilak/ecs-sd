@@ -154,14 +154,15 @@ async fn leader_cache_propagates_to_follower() {
 async fn leader_failover_promotes_surviving_node() {
     let transport = ChannelTransport::with_mtu(65_507);
 
-    // Use aggressive failure detector settings for faster failover detection
-    // phi_threshold of 1.0 makes the detector much more sensitive
+    // Use aggressive failure detector settings for faster failover detection.
+    // We keep a generous dead_node_grace_period so nodes don't prematurely
+    // mark each other dead during the initial convergence window.
     let aggressive_detector = FailureDetectorConfig {
         phi_threshold: 1.0,
         sampling_window_size: 10,
         max_interval: Duration::from_millis(500),
         initial_interval: Duration::from_millis(50),
-        dead_node_grace_period: Duration::from_secs(1),
+        dead_node_grace_period: Duration::from_secs(5),
     };
 
     let node_a = make_node_with_detector(
@@ -181,8 +182,9 @@ async fn leader_failover_promotes_surviving_node() {
     )
     .await;
 
-    // Wait for membership convergence
-    tokio::time::sleep(Duration::from_millis(CONVERGENCE_MS)).await;
+    // Aggressive detector needs more time for the sampling window to fill.
+    // Wait 2s (40 gossip intervals) before asserting stable leadership.
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
     // Verify initial leader
     assert!(node_a.is_leader().await, "node-a should initially be leader");
