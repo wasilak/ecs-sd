@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 use crate::config::Config;
 use crate::error::DiscoveryError;
-use crate::models::{MetadataLevel, Target};
+use crate::models::{MetadataLevel, ProxyTarget, Target};
 use crate::aws::DiscoveryService;
 
 #[derive(Clone)]
@@ -14,6 +15,8 @@ pub struct AppState {
     pub cache_ttl_seconds: u64,
     pub config: Arc<Config>,
     pub discovery: DiscoveryService,
+    pub routing_table: Arc<RwLock<HashMap<Uuid, ProxyTarget>>>,
+    pub http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -25,6 +28,10 @@ impl AppState {
         region: String,
     ) -> Result<Self, DiscoveryError> {
         let discovery = DiscoveryService::new(ecs_client, ec2_client, sts_client, region).await?;
+        let http_client = reqwest::Client::builder()
+            // No client-level timeout: timeout set per-request from X-Prometheus-Scrape-Timeout-Seconds
+            .build()
+            .expect("failed to build reqwest client");
 
         Ok(Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
@@ -32,6 +39,8 @@ impl AppState {
             cache_ttl_seconds: config.refresh_interval.max(1),
             config: Arc::new(config),
             discovery,
+            routing_table: Arc::new(RwLock::new(HashMap::new())),
+            http_client,
         })
     }
 }

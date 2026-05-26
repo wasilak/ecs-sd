@@ -1,6 +1,9 @@
 pub mod target;
 pub use target::Target;
 
+pub mod proxy_target;
+pub use proxy_target::{ProxyTarget, route_id};
+
 pub mod metadata_level;
 pub use metadata_level::MetadataLevel;
 
