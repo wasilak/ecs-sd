@@ -9,6 +9,13 @@ use crate::error::ConfigError;
 use crate::models::MetadataLevel;
 
 #[derive(Debug, Clone, PartialEq, Default, clap::ValueEnum)]
+pub enum ClusterMode {
+    #[default]
+    Standalone,
+    Cluster,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, clap::ValueEnum)]
 pub enum Mode {
     #[default]
     Discovery,
@@ -66,6 +73,36 @@ pub struct Args {
         help = "Reachable address of this ecs-sd instance (required in proxy mode)"
     )]
     pub public_address: Option<String>,
+
+    #[arg(
+        long,
+        env = "ECS_SD_CLUSTER_MODE",
+        default_value = "standalone",
+        help = "Cluster mode: standalone (default) or cluster"
+    )]
+    pub cluster_mode: ClusterMode,
+
+    #[arg(
+        long,
+        env = "ECS_SD_CLUSTER_SEEDS",
+        help = "Comma-separated list of cluster seed addresses (host:port)"
+    )]
+    pub cluster_seeds: Option<String>,
+
+    #[arg(
+        long,
+        env = "ECS_SD_GOSSIP_PORT",
+        default_value = "8081",
+        help = "UDP port for gossip protocol"
+    )]
+    pub gossip_port: u16,
+
+    #[arg(
+        long,
+        env = "ECS_SD_NODE_ID",
+        help = "Unique node ID in the cluster (defaults to HOSTNAME:gossip_port)"
+    )]
+    pub node_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +113,10 @@ pub struct Config {
     pub metadata_level: MetadataLevel,
     pub mode: Mode,
     pub public_address: Option<String>,
+    pub cluster_mode: ClusterMode,
+    pub cluster_seeds: Vec<String>,
+    pub gossip_port: u16,
+    pub node_id: String,
 }
 
 impl Default for Config {
@@ -87,6 +128,10 @@ impl Default for Config {
             metadata_level: MetadataLevel::default(),
             mode: Mode::Discovery,
             public_address: None,
+            cluster_mode: ClusterMode::Standalone,
+            cluster_seeds: Vec::new(),
+            gossip_port: 8081,
+            node_id: "localhost:8081".to_string(),
         }
     }
 }
@@ -148,6 +193,37 @@ impl Config {
             ));
         }
 
+        let cluster_seeds: Vec<String> = if let Some(ref seeds_str) = args.cluster_seeds {
+            seeds_str
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        for seed in &cluster_seeds {
+            if let Some((_, port_str)) = seed.rsplit_once(':') {
+                if port_str.parse::<u16>().is_err() {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "invalid cluster seed '{}': must be host:port",
+                        seed
+                    )));
+                }
+            } else {
+                return Err(ConfigError::InvalidValue(format!(
+                    "invalid cluster seed '{}': must be host:port",
+                    seed
+                )));
+            }
+        }
+
+        let node_id = args
+            .node_id
+            .unwrap_or_else(|| default_node_id(args.gossip_port));
+
         Ok(Self {
             clusters,
             listen: args.listen,
@@ -155,8 +231,17 @@ impl Config {
             metadata_level: args.metadata_level,
             mode: args.mode,
             public_address: args.public_address,
+            cluster_mode: args.cluster_mode,
+            cluster_seeds,
+            gossip_port: args.gossip_port,
+            node_id,
         })
     }
+}
+
+fn default_node_id(gossip_port: u16) -> String {
+    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "localhost".to_string());
+    format!("{}:{}", hostname, gossip_port)
 }
 
 fn parse_metadata_level(input: &str) -> Result<MetadataLevel, String> {
@@ -174,13 +259,27 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    #[test]
-    fn mode_defaults_to_discovery() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    fn clear_cluster_env_vars() {
+        unsafe {
+            std::env::remove_var("ECS_SD_CLUSTER_MODE");
+            std::env::remove_var("ECS_SD_CLUSTER_SEEDS");
+            std::env::remove_var("ECS_SD_GOSSIP_PORT");
+            std::env::remove_var("ECS_SD_NODE_ID");
+        }
+    }
+
+    fn clear_mode_env_vars() {
         unsafe {
             std::env::remove_var("ECS_SD_MODE");
             std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
         }
+    }
+
+    #[test]
+    fn mode_defaults_to_discovery() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
         assert_eq!(config.mode, Mode::Discovery);
     }
@@ -188,10 +287,8 @@ mod tests {
     #[test]
     fn mode_flag_sets_proxy() {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        unsafe {
-            std::env::remove_var("ECS_SD_MODE");
-            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
-        }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "ecs-sd.local:8080"])
             .expect("should succeed");
         assert_eq!(config.mode, Mode::Proxy);
@@ -204,6 +301,7 @@ mod tests {
             std::env::set_var("ECS_SD_MODE", "proxy");
             std::env::set_var("ECS_SD_PUBLIC_ADDRESS", "host:8080");
         }
+        clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
         assert_eq!(config.mode, Mode::Proxy);
         unsafe {
@@ -215,10 +313,8 @@ mod tests {
     #[test]
     fn proxy_mode_without_public_address_fails() {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        unsafe {
-            std::env::remove_var("ECS_SD_MODE");
-            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
-        }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
         let err = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy"])
             .expect_err("should fail");
         assert!(err.to_string().contains("--public-address"), "error was: {err}");
@@ -227,10 +323,8 @@ mod tests {
     #[test]
     fn proxy_mode_with_public_address_succeeds() {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        unsafe {
-            std::env::remove_var("ECS_SD_MODE");
-            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
-        }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
         Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "10.0.0.1:8080"])
             .expect("should succeed");
     }
@@ -238,20 +332,16 @@ mod tests {
     #[test]
     fn discovery_mode_without_public_address_ok() {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        unsafe {
-            std::env::remove_var("ECS_SD_MODE");
-            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
-        }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
         Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
     }
 
     #[test]
     fn invalid_mode_rejected() {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        unsafe {
-            std::env::remove_var("ECS_SD_MODE");
-            std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
-        }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
         Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "invalid"])
             .expect_err("should reject unknown mode");
     }
@@ -265,6 +355,8 @@ mod tests {
             std::env::remove_var("ECS_SD_LISTEN");
             std::env::remove_var("ECS_SD_METADATA_LEVEL");
         }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
 
         let result = Config::from_iter(["ecs-sd", "--clusters", "from-cli", "--refresh-interval", "30s"])
             .expect("config parsing should succeed");
@@ -287,6 +379,8 @@ mod tests {
             std::env::set_var("ECS_SD_REFRESH_INTERVAL", "45s");
             std::env::set_var("ECS_SD_METADATA_LEVEL", "service");
         }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
 
         let result = Config::from_iter(["ecs-sd"]).expect("config parsing should succeed");
 
@@ -312,6 +406,8 @@ mod tests {
             std::env::remove_var("ECS_SD_REFRESH_INTERVAL");
             std::env::remove_var("ECS_SD_METADATA_LEVEL");
         }
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
 
         let result = Config::from_iter(["ecs-sd"]).expect("config parsing should succeed");
 
@@ -327,12 +423,16 @@ mod tests {
 
     #[test]
     fn rejects_empty_clusters() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_cluster_env_vars();
         let error = Config::from_iter(["ecs-sd", "--clusters", " , , "]).expect_err("should reject empty clusters");
         assert!(error.to_string().contains("clusters must contain at least one non-empty entry"));
     }
 
     #[test]
     fn rejects_invalid_listen_address() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_cluster_env_vars();
         let error = Config::from_iter(["ecs-sd", "--clusters", "prod", "--listen", "bad-listen"])
             .expect_err("should reject invalid listen");
         assert!(error.to_string().contains("listen must be a valid socket address"));
@@ -340,8 +440,127 @@ mod tests {
 
     #[test]
     fn rejects_zero_refresh_interval() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_cluster_env_vars();
         let error = Config::from_iter(["ecs-sd", "--clusters", "prod", "--refresh-interval", "0s"])
             .expect_err("should reject zero refresh interval");
         assert!(error.to_string().contains("refresh interval must be greater than 0"));
+    }
+
+    // ---- Cluster config tests ----
+
+    #[test]
+    fn cluster_mode_defaults_to_standalone() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.cluster_mode, ClusterMode::Standalone);
+    }
+
+    #[test]
+    fn cluster_mode_cluster_via_flag() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-mode", "cluster"])
+            .expect("should succeed");
+        assert_eq!(config.cluster_mode, ClusterMode::Cluster);
+    }
+
+    #[test]
+    fn cluster_mode_cluster_via_env() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        unsafe {
+            std::env::set_var("ECS_SD_CLUSTER_MODE", "cluster");
+        }
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.cluster_mode, ClusterMode::Cluster);
+        unsafe {
+            std::env::remove_var("ECS_SD_CLUSTER_MODE");
+        }
+    }
+
+    #[test]
+    fn gossip_port_defaults_to_8081() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.gossip_port, 8081);
+    }
+
+    #[test]
+    fn gossip_port_overridable() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--gossip-port", "9999"])
+            .expect("should succeed");
+        assert_eq!(config.gossip_port, 9999);
+    }
+
+    #[test]
+    fn cluster_seeds_parsed_from_comma_separated() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter([
+            "ecs-sd",
+            "--clusters", "prod",
+            "--cluster-mode", "cluster",
+            "--cluster-seeds", "host1:8081,host2:8081",
+        ])
+        .expect("should succeed");
+        assert_eq!(config.cluster_seeds, vec!["host1:8081", "host2:8081"]);
+    }
+
+    #[test]
+    fn cluster_seeds_empty_allowed_in_cluster_mode() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-mode", "cluster"])
+            .expect("should succeed");
+        assert_eq!(config.cluster_seeds, Vec::<String>::new());
+    }
+
+    #[test]
+    fn node_id_defaults_to_hostname_colon_port() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert!(
+            config.node_id.contains(':'),
+            "node_id should contain colon: {}",
+            config.node_id
+        );
+        assert!(
+            config.node_id.ends_with(":8081"),
+            "node_id should end with default gossip port: {}",
+            config.node_id
+        );
+    }
+
+    #[test]
+    fn node_id_overridable() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--node-id", "my-custom-id"])
+            .expect("should succeed");
+        assert_eq!(config.node_id, "my-custom-id");
+    }
+
+    #[test]
+    fn invalid_cluster_seed_rejected() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let err = Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-seeds", "notaport"])
+            .expect_err("should fail");
+        assert!(err.to_string().contains("invalid cluster seed"), "error was: {err}");
     }
 }
