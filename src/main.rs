@@ -17,7 +17,10 @@ use tokio::time::MissedTickBehavior;
 use tracing::info;
 use tracing::warn;
 
-use crate::config::Config;
+use chitchat::{spawn_chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig};
+use chitchat::transport::UdpTransport;
+use crate::cluster::{ClusterState, GossipProxyTarget};
+use crate::config::{Config, ClusterMode};
 use crate::state::AppState;
 
 #[tokio::main]
@@ -50,6 +53,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|r| r.to_string())
         .unwrap_or_else(|| "us-east-1".to_string());
 
+    // Initialize cluster state if cluster mode is active
+    let cluster: Option<std::sync::Arc<ClusterState>> = match config.cluster_mode {
+        ClusterMode::Standalone => None,
+        ClusterMode::Cluster => {
+            let chitchat_id = ChitchatId {
+                node_id: config.node_id.clone(),
+                generation_id: rand::random::<u64>(),
+                gossip_advertise_addr: format!("0.0.0.0:{}", config.gossip_port).parse()
+                    .expect("gossip_port is validated at config parse time"),
+            };
+            let cc_config = ChitchatConfig {
+                chitchat_id,
+                cluster_id: "ecs-sd".to_string(),
+                gossip_interval: std::time::Duration::from_secs(1),
+                listen_addr: format!("0.0.0.0:{}", config.gossip_port).parse()
+                    .expect("gossip_port is validated at config parse time"),
+                seed_nodes: config.cluster_seeds.clone(),
+                failure_detector_config: FailureDetectorConfig::default(),
+                marked_for_deletion_grace_period: std::time::Duration::from_secs(3600),
+                catchup_callback: None,
+                extra_liveness_predicate: None,
+            };
+            let handle = spawn_chitchat(cc_config, vec![], &UdpTransport).await
+                .map_err(|e| { eprintln!("Failed to start gossip: {}", e); std::process::exit(1) })?;
+            info!("Gossip node {} started on port {}", config.node_id, config.gossip_port);
+            Some(std::sync::Arc::new(ClusterState { handle, self_id: config.node_id.clone() }))
+        }
+    };
+
     // Create shared state
     let state = AppState::new(
         config.clone(),
@@ -57,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ec2_client,
         sts_client,
         region,
+        cluster,  // new final argument
     )
     .await
     .map_err(|e| {
@@ -64,20 +97,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     })?;
 
-    // Perform initial discovery to populate all cache tiers
-    info!("Performing initial discovery...");
-    let targets_aws = state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await;
-    state.replace_cache_and_routing(targets_aws).await;
-
-    info!("Initial discovery complete");
+    // Perform initial discovery — leader only (or standalone)
+    let should_discover = match &state.cluster {
+        None => true,  // standalone always discovers
+        Some(c) => c.is_leader().await,
+    };
+    if should_discover {
+        info!("Performing initial discovery...");
+        let targets_aws = state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await;
+        state.replace_cache_and_routing(targets_aws).await;
+        info!("Initial discovery complete");
+        publish_cache_to_gossip(&state).await;
+    } else {
+        info!("Follower node: skipping initial discovery, waiting for gossip cache");
+    }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let refresh_handle = spawn_background_refresh(state.clone(), shutdown_rx);
+    let refresh_handle = spawn_background_refresh(state.clone(), shutdown_rx.clone());
+    let follower_sync_handle = state.cluster.as_ref().map(|c| {
+        spawn_follower_sync(state.clone(), c.clone(), shutdown_rx.clone())
+    });
 
     // Build router
     let app = Router::new()
         .merge(routes::create_routes())
-        .with_state(state);
+        .with_state(state.clone());
 
     // Parse bind address
     let addr: SocketAddr = config.listen.parse()?;
@@ -95,6 +139,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Err(error) = refresh_handle.await {
         warn!("background refresh task failed to join: {}", error);
+    }
+
+    if let Some(handle) = follower_sync_handle {
+        if let Err(e) = handle.await {
+            warn!("follower sync task failed to join: {}", e);
+        }
+    }
+
+    // Shut down gossip node
+    if let Some(cluster) = state.cluster {
+        if let Ok(cluster) = std::sync::Arc::try_unwrap(cluster) {
+            if let Err(e) = cluster.handle.shutdown().await {
+                warn!("gossip shutdown error: {}", e);
+            } else {
+                info!("Gossip node shut down");
+            }
+        }
     }
 
     info!("Server shut down gracefully");
@@ -116,6 +177,14 @@ fn spawn_background_refresh(
                         break;
                     }
 
+                    // Skip refresh if this is a follower node
+                    if let Some(ref cluster) = state.cluster {
+                        if !cluster.is_leader().await {
+                            // Follower: cache is managed by follower sync task
+                            continue;
+                        }
+                    }
+
                     let jitter_factor = rand::thread_rng().gen_range(-0.10..=0.10);
                     let jittered_delay = calculate_jittered_delay(base_interval, jitter_factor);
                     tokio::time::sleep(jittered_delay).await;
@@ -128,6 +197,7 @@ fn spawn_background_refresh(
                     match refresh_cache_once(&state).await {
                         Ok(target_count) => {
                             info!("discovery refresh complete: {} targets", target_count);
+                            publish_cache_to_gossip(&state).await;
                         }
                         Err(error) => {
                             warn!("discovery refresh failed: {}", error);
@@ -200,6 +270,61 @@ async fn shutdown_signal(shutdown_tx: watch::Sender<bool>) {
     }
 
     let _ = shutdown_tx.send(true);
+}
+
+async fn publish_cache_to_gossip(state: &AppState) {
+    let Some(ref cluster) = state.cluster else { return };
+    {
+        let cache = state.cache.read().await;
+        if let Some(targets) = cache.get(&crate::models::MetadataLevel::Aws) {
+            if let Ok(json) = serde_json::to_string(targets) {
+                cluster.publish_cache(&json).await;
+            }
+        }
+    }
+    if state.config.mode == crate::config::Mode::Proxy {
+        let rt = state.routing_table.read().await;
+        let gossip_rt: Vec<GossipProxyTarget> = rt.values().map(|pt| GossipProxyTarget {
+            route_id: pt.route_id.to_string(),
+            address: pt.address.clone(),
+        }).collect();
+        if let Ok(json) = serde_json::to_string(&gossip_rt) {
+            cluster.publish_routing(&json).await;
+        }
+    }
+}
+
+fn spawn_follower_sync(
+    state: AppState,
+    cluster: std::sync::Arc<ClusterState>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if *shutdown_rx.borrow() { break; }
+                    if cluster.is_leader().await { continue; }
+                    if let Some(json) = cluster.read_leader_cache().await {
+                        match serde_json::from_str::<Vec<crate::models::Target>>(&json) {
+                            Ok(targets) => {
+                                state.replace_cache_and_routing(targets).await;
+                                tracing::debug!("follower cache synced from gossip");
+                            }
+                            Err(e) => {
+                                tracing::warn!("follower: malformed gossip cache JSON: {}", e);
+                            }
+                        }
+                    }
+                }
+                changed = shutdown_rx.changed() => {
+                    if changed.is_ok() && *shutdown_rx.borrow() { break; }
+                }
+            }
+        }
+    })
 }
 
 #[cfg(test)]
