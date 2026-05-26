@@ -193,6 +193,119 @@ If these labels are absent, the container is silently skipped.
 
 **One target per task.** Only the first container with `prometheus.io/scrape=true` is included per task.
 
+**Cluster mode for HA.** Multiple ecs-sd instances can form a gossip-based cluster with automatic leader election. Leader runs discovery; followers serve from replicated cache.
+
+---
+
+## Cluster Mode (Horizontal Scaling)
+
+ecs-sd can run as a cluster of nodes that share discovery state via gossip. In cluster mode, one node is elected leader (lowest lexicographic node_id) and performs AWS discovery; followers maintain a local cache copy synced from gossip. Any node can serve `/sd` requests — this enables HA deployments where multiple ecs-sd instances behind a load balancer continue serving targets even if the leader fails.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph "Cluster"
+        L["Leader\nDiscovers from AWS\nPublishes to gossip"]
+        F1["Follower\nReads from gossip\nServes /sd"]
+        F2["Follower\nReads from gossip\nServes /sd"]
+        G[("Gossip State\necs_sd.cache.v1")]
+    end
+    P["Prometheus"]
+    AWS["AWS ECS API"]
+
+    L -->|discovers| AWS
+    L -->|publishes| G
+    F1 -->|reads| G
+    F2 -->|reads| G
+    P -->|scrapes| L
+    P -->|scrapes| F1
+    P -->|scrapes| F2
+```
+
+### Configuration
+
+The cluster mode adds four new configuration options:
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
+| `--clusters` | `ECS_SD_CLUSTERS` | — (required) | Comma-separated ECS cluster names or ARNs |
+| `--cluster-mode` | `ECS_SD_CLUSTER_MODE` | `standalone` | Run mode: `standalone` or `cluster` |
+| `--cluster-seeds` | `ECS_SD_CLUSTER_SEEDS` | — | Comma-separated `host:gossip_port` seed addresses (cluster mode only) |
+| `--gossip-port` | `ECS_SD_GOSSIP_PORT` | `8081` | UDP port for gossip protocol (cluster mode only) |
+| `--listen` | `ECS_SD_LISTEN` | `0.0.0.0:8080` | Socket address to bind |
+| `--metadata-level` | `ECS_SD_METADATA_LEVEL` | `task` | Metadata detail level (see below) |
+| `--node-id` | `ECS_SD_NODE_ID` | `hostname:port` | Unique node identifier (auto-generated if not set) |
+| `--refresh-interval` | `ECS_SD_REFRESH_INTERVAL` | `60s` | Background cache refresh interval |
+
+### Standalone vs Cluster
+
+| Aspect | Standalone | Cluster |
+|---|---|---|
+| Use case | Single instance, simple deployments | HA requirements, load-balanced setups |
+| Discovery | Every node polls AWS | Leader only polls AWS |
+| Network overhead | None | UDP gossip on port 8081 |
+| Failover | N/A | Automatic leader election on failure |
+| AWS API calls | Per-instance | Once per cluster (leader) |
+
+### Local Cluster Testing
+
+```yaml
+# docker-compose.cluster.yml
+# Three-node ecs-sd cluster for local testing
+# Each node can serve /sd requests; only the leader discovers from AWS
+# Usage: docker-compose -f docker-compose.cluster.yml up
+version: '3.8'
+services:
+  ecs-sd-1:
+    image: ghcr.io/wasilak/ecs-sd
+    environment:
+      ECS_SD_CLUSTERS: my-cluster
+      ECS_SD_CLUSTER_MODE: cluster
+      ECS_SD_CLUSTER_SEEDS: ecs-sd-2:8081,ecs-sd-3:8081
+      ECS_SD_NODE_ID: node-1
+      ECS_SD_GOSSIP_PORT: "8081"
+      # ... AWS credentials
+    ports:
+      - "8080:8080"
+
+  ecs-sd-2:
+    image: ghcr.io/wasilak/ecs-sd
+    environment:
+      ECS_SD_CLUSTERS: my-cluster
+      ECS_SD_CLUSTER_MODE: cluster
+      ECS_SD_CLUSTER_SEEDS: ecs-sd-1:8081,ecs-sd-3:8081
+      ECS_SD_NODE_ID: node-2
+      ECS_SD_GOSSIP_PORT: "8081"
+      # ... AWS credentials
+    ports:
+      - "8081:8080"
+
+  ecs-sd-3:
+    image: ghcr.io/wasilak/ecs-sd
+    environment:
+      ECS_SD_CLUSTERS: my-cluster
+      ECS_SD_CLUSTER_MODE: cluster
+      ECS_SD_CLUSTER_SEEDS: ecs-sd-1:8081,ecs-sd-2:8081
+      ECS_SD_NODE_ID: node-3
+      ECS_SD_GOSSIP_PORT: "8081"
+      # ... AWS credentials
+    ports:
+      - "8082:8080"
+```
+
+Run: `docker-compose -f docker-compose.cluster.yml up`
+
+### Fargate Deployment
+
+In Fargate `awsvpc` mode, each task has its own ENI — all tasks can use the same gossip port (8081) without conflict.
+
+**Seed configuration:** Since Fargate tasks get dynamic IPs, you must:
+1. Use AWS Cloud Map or Route 53 for DNS-based service discovery, OR
+2. Supply seed IPs via the `ECS_SD_CLUSTER_SEEDS` environment variable updated at task startup
+
+**Security Group:** Allow inbound UDP port 8081 from the security group itself (self-referencing rule).
+
 ---
 
 ## Building from Source
