@@ -4,6 +4,18 @@ use aws_sdk_ecs::types::{ClusterField, LaunchType, ServiceField, TaskField};
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
+fn extract_fargate_private_ip(task: &aws_sdk_ecs::types::Task) -> Option<&str> {
+    task.attachments()
+        .iter()
+        .find(|a| a.r#type() == Some("ElasticNetworkInterface"))
+        .and_then(|a| {
+            a.details()
+                .iter()
+                .find(|d| d.name() == Some("privateIPv4Address"))
+        })
+        .and_then(|d| d.value())
+}
+
 #[derive(Clone)]
 pub struct DiscoveryService {
     ecs_client: aws_sdk_ecs::Client,
@@ -383,5 +395,65 @@ impl DiscoveryService {
             ec2_instance_type,
             ec2_tags,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_sdk_ecs::types::{Attachment, KeyValuePair};
+
+    #[test]
+    fn extract_fargate_ip_from_valid_eni() {
+        let kv = KeyValuePair::builder()
+            .name("privateIPv4Address")
+            .value("10.0.1.42")
+            .build();
+        let attachment = Attachment::builder()
+            .r#type("ElasticNetworkInterface")
+            .details(kv)
+            .build();
+        let task = aws_sdk_ecs::types::Task::builder()
+            .attachments(attachment)
+            .build();
+        assert_eq!(extract_fargate_private_ip(&task), Some("10.0.1.42"));
+    }
+
+    #[test]
+    fn extract_fargate_ip_returns_none_when_no_eni() {
+        let task = aws_sdk_ecs::types::Task::builder().build();
+        assert_eq!(extract_fargate_private_ip(&task), None);
+    }
+
+    #[test]
+    fn extract_fargate_ip_returns_none_when_wrong_attachment_type() {
+        let kv = KeyValuePair::builder()
+            .name("privateIPv4Address")
+            .value("10.0.1.42")
+            .build();
+        let attachment = Attachment::builder()
+            .r#type("other")
+            .details(kv)
+            .build();
+        let task = aws_sdk_ecs::types::Task::builder()
+            .attachments(attachment)
+            .build();
+        assert_eq!(extract_fargate_private_ip(&task), None);
+    }
+
+    #[test]
+    fn extract_fargate_ip_returns_none_when_ip_key_missing() {
+        let kv = KeyValuePair::builder()
+            .name("someOtherKey")
+            .value("10.0.1.42")
+            .build();
+        let attachment = Attachment::builder()
+            .r#type("ElasticNetworkInterface")
+            .details(kv)
+            .build();
+        let task = aws_sdk_ecs::types::Task::builder()
+            .attachments(attachment)
+            .build();
+        assert_eq!(extract_fargate_private_ip(&task), None);
     }
 }
