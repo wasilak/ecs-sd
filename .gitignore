@@ -3,3 +3,7 @@
 dist/
 .planning/
 .claude/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
