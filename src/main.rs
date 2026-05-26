@@ -9,16 +9,14 @@ mod handlers;
 use axum::Router;
 use rand::Rng;
 use std::net::SocketAddr;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tokio::signal;
 use tokio::sync::watch;
 use tokio::time::MissedTickBehavior;
 use tracing::info;
 use tracing::warn;
 
-use crate::config::{Config, Mode};
-use crate::handlers::sd::filter_labels_by_level;
-use crate::models::{MetadataLevel, Target};
+use crate::config::Config;
 use crate::state::AppState;
 
 #[tokio::main]
@@ -67,8 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform initial discovery to populate all cache tiers
     info!("Performing initial discovery...");
-    let targets_aws = state.discovery.discover_all_clusters(&config.clusters, Mode::Discovery).await;
-    replace_cache_levels_and_refresh_time(&state, targets_aws).await;
+    let targets_aws = state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await;
+    state.replace_cache_and_routing(targets_aws).await;
 
     info!("Initial discovery complete");
 
@@ -162,46 +160,13 @@ async fn refresh_cache_once(state: &AppState) -> Result<usize, String> {
 
     let targets_aws = state
         .discovery
-        .discover_all_clusters(&state.config.clusters, Mode::Discovery)
+        .discover_all_clusters(&state.config.clusters, state.config.mode.clone())
         .await;
     let target_count = targets_aws.len();
 
-    replace_cache_levels_and_refresh_time(state, targets_aws).await;
+    state.replace_cache_and_routing(targets_aws).await;
 
     Ok(target_count)
-}
-
-async fn replace_cache_levels_and_refresh_time(state: &AppState, targets_aws: Vec<Target>) {
-    let targets_cluster: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
-        .collect();
-    let targets_service: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Service))
-        .collect();
-    let targets_task: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Task))
-        .collect();
-    let targets_container: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Container))
-        .collect();
-
-    {
-        let mut cache = state.cache.write().await;
-        cache.insert(MetadataLevel::Aws, targets_aws);
-        cache.insert(MetadataLevel::Cluster, targets_cluster);
-        cache.insert(MetadataLevel::Service, targets_service);
-        cache.insert(MetadataLevel::Task, targets_task);
-        cache.insert(MetadataLevel::Container, targets_container);
-    }
-
-    {
-        let mut last_refresh = state.last_refresh.write().await;
-        *last_refresh = SystemTime::now();
-    }
 }
 
 fn calculate_jittered_delay(base_interval: Duration, jitter_factor: f64) -> Duration {

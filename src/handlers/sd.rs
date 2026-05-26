@@ -12,11 +12,49 @@ use tracing::info;
 use std::collections::HashMap;
 use std::time::SystemTime;
 use tracing::debug;
+use uuid::Uuid;
+
+/// Build a single SD target entry for proxy mode: the public_address becomes the
+/// scrape target and __metrics_path__ points through the proxy at the given UUID.
+fn build_proxy_sd_target(uuid: &Uuid, public_address: &str) -> Target {
+    let mut labels = HashMap::new();
+    labels.insert(
+        "__metrics_path__".to_string(),
+        format!("/proxy/{}/metrics", uuid),
+    );
+    Target {
+        targets: vec![public_address.to_string()],
+        labels,
+    }
+}
 
 pub async fn sd_handler(
     State(state): State<AppState>,
     Query(params): Query<SdQueryParams>,
 ) -> Response {
+    // In proxy mode, return routing-table targets with public_address as target
+    // and __metrics_path__ pointing through the proxy.
+    if state.config.mode == Mode::Proxy {
+        let public_address = state.config.public_address.as_deref().unwrap_or_default();
+
+        let routing = state.routing_table.read().await;
+        let proxy_targets: Vec<Target> = routing
+            .iter()
+            .map(|(uuid, _proxy_target)| build_proxy_sd_target(uuid, public_address))
+            .collect();
+        drop(routing);
+
+        let last_refresh = *state.last_refresh.read().await;
+        let cache_age_seconds = calculate_cache_age_seconds(last_refresh, SystemTime::now());
+        let cache_state = if cache_age_seconds > state.cache_ttl_seconds {
+            "stale"
+        } else {
+            "fresh"
+        };
+
+        return build_sd_response_with_cache_age(proxy_targets, cache_age_seconds, cache_state);
+    }
+
     let level = params.level.unwrap_or(state.config.metadata_level);
 
     let cache = state.cache.read().await;
@@ -54,37 +92,12 @@ pub async fn refresh_handler(
 
     info!("Manual discovery refresh triggered");
 
-    // Discover at full Aws level
-    let targets_aws = state.discovery.discover_all_clusters(&clusters, Mode::Discovery).await;
+    let targets_aws = state
+        .discovery
+        .discover_all_clusters(&clusters, state.config.mode.clone())
+        .await;
     let count = targets_aws.len();
-
-    // Derive all cache tiers from Aws-level targets
-    let targets_cluster: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
-        .collect();
-    let targets_service: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Service))
-        .collect();
-    let targets_task: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Task))
-        .collect();
-    let targets_container: Vec<Target> = targets_aws
-        .iter()
-        .map(|t| filter_labels_by_level(t, MetadataLevel::Container))
-        .collect();
-
-    // Update all cache tiers atomically
-    {
-        let mut cache = state.cache.write().await;
-        cache.insert(MetadataLevel::Aws, targets_aws);
-        cache.insert(MetadataLevel::Cluster, targets_cluster);
-        cache.insert(MetadataLevel::Service, targets_service);
-        cache.insert(MetadataLevel::Task, targets_task);
-        cache.insert(MetadataLevel::Container, targets_container);
-    }
+    state.replace_cache_and_routing(targets_aws).await;
 
     info!("Discovery refresh complete: {} targets", count);
 
@@ -394,5 +407,32 @@ mod tests {
         let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
         let age = calculate_cache_age_seconds(last_refresh, now);
         assert_eq!(age, 0);
+    }
+
+    // ---- proxy-mode sd target tests ----
+
+    #[test]
+    fn sd_proxy_mode_returns_public_address_as_target() {
+        let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
+        let target = build_proxy_sd_target(&uuid, "ecs-sd.internal:8080");
+        assert_eq!(target.targets, vec!["ecs-sd.internal:8080"]);
+    }
+
+    #[test]
+    fn sd_proxy_mode_sets_metrics_path_label() {
+        let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
+        let target = build_proxy_sd_target(&uuid, "ecs-sd.internal:8080");
+        let expected_path = format!("/proxy/{}/metrics", uuid);
+        assert_eq!(
+            target.labels.get("__metrics_path__"),
+            Some(&expected_path)
+        );
+    }
+
+    #[test]
+    fn sd_proxy_mode_target_has_no_original_address() {
+        let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
+        let target = build_proxy_sd_target(&uuid, "ecs-sd.internal:8080");
+        assert!(!target.targets.contains(&"10.0.0.5:8080".to_string()));
     }
 }
