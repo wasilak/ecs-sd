@@ -5,6 +5,7 @@ mod aws;
 mod models;
 mod routes;
 mod handlers;
+mod cluster;
 
 use axum::Router;
 use rand::Rng;
