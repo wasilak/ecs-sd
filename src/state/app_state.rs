@@ -21,6 +21,7 @@ pub struct AppState {
     pub discovery: DiscoveryService,
     pub routing_table: Arc<RwLock<HashMap<Uuid, ProxyTarget>>>,
     pub http_client: reqwest::Client,
+    pub cluster: Option<Arc<crate::cluster::ClusterState>>,
 }
 
 impl AppState {
@@ -30,6 +31,7 @@ impl AppState {
         ec2_client: aws_sdk_ec2::Client,
         sts_client: aws_sdk_sts::Client,
         region: String,
+        cluster: Option<Arc<crate::cluster::ClusterState>>,
     ) -> Result<Self, DiscoveryError> {
         let discovery = DiscoveryService::new(ecs_client, ec2_client, sts_client, region).await?;
         let http_client = reqwest::Client::builder()
@@ -45,6 +47,7 @@ impl AppState {
             discovery,
             routing_table: Arc::new(RwLock::new(HashMap::new())),
             http_client,
+            cluster,
         })
     }
 
