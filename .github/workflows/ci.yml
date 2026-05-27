@@ -64,16 +64,9 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
 
-      - name: Install dependencies for MUSL & OpenSSL (Linux Only)
+      - name: Install dependencies for MUSL (Linux Only)
         if: contains(matrix.platform.target, 'linux-musl')
-        run: sudo apt update && sudo apt install -y musl-tools pkg-config libssl-dev
-
-      - name: Set environment variables for OpenSSL (Linux MUSL Only)
-        if: contains(matrix.platform.target, 'linux-musl')
-        run: |
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_SYSROOT_DIR=/" >> $GITHUB_ENV
+        run: sudo apt update && sudo apt install -y musl-tools
 
       - name: Build binary (Cross-Compile)
         uses: houseabsolute/actions-rust-cross@v1

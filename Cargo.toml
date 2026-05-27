@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-config = "1.8.16"
-aws-sdk-ecs = "1.124.0"
-aws-sdk-ec2 = "1.0"
-aws-sdk-sts = "1.103"
+aws-config = { version = "1.8.16", default-features = false, features = ["rustls"] }
+aws-sdk-ecs = { version = "1.124.0", default-features = false, features = ["rustls"] }
+aws-sdk-ec2 = { version = "1.0", default-features = false, features = ["rustls"] }
+aws-sdk-sts = { version = "1.103", default-features = false, features = ["rustls"] }
 strum = { version = "0.28", features = ["derive"] }
 tokio = { version = "1.52.2", features = ["full"] }
 axum = "0.7"
@@ -21,7 +21,7 @@ clap = { version = "4", features = ["derive", "env"] }
 humantime = "2"
 prometheus = "0.14"
 rand = "0.8"
-reqwest = { version = "0.12", features = ["stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 uuid = { version = "1", features = ["v5"] }
 chitchat = "0.10.1"
 tokio-stream = { version = "0.1", features = ["sync"] }
