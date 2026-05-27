@@ -25,7 +25,7 @@ flowchart LR
     P -->|GET /sd| E
     E -->|describe services/tasks/instances| AWS
     E <--> C
-    E -->|returns: targets=["10.0.1.42:9464"]| P
+    E -.->|returns target IPs| P
     P -->|scrape metrics| T
 ```
 
@@ -47,8 +47,8 @@ flowchart LR
     P -->|GET /sd| E
     E -->|discover all tasks| AWS
     E <--> C
-    E -->|returns: targets=["ecs-sd:8080"]<br/>__metrics_path__="/proxy/<id>/metrics"| P
-    P -->|GET /proxy/<id>/metrics| E
+    E -.->|returns ecs-sd address| P
+    P -->|GET /proxy/id/metrics| E
     E -->|proxies| T1
     E -->|proxies| T2
 ```
@@ -492,7 +492,7 @@ flowchart LR
     end
 
     P -->|GET /sd| E
-    E -->|returns: targets=["ecs-sd:8080"]<br/>__metrics_path__="/proxy/<id>/metrics"| P
+    E -.->|returns proxy address| P
     P -->|GET /proxy/<id>/metrics| E
     E -->|proxies request| T1
     E -->|proxies request| T2
@@ -505,14 +505,14 @@ flowchart LR
 flowchart LR
     P["Prometheus"] -->|scrape| T["Target<br/>Direct IP:Port"]
     P -->|GET /sd| E["ecs-sd"]
-    E -->|returns: targets=["10.0.1.10:8080"]| P
+    E -.->|returns direct target IPs| P
 ```
 
 **Proxy Mode (v0.2.0):**
 ```mermaid
 flowchart LR
     P["Prometheus"] -->|GET /sd| E["ecs-sd<br/>Proxy Mode"]
-    E -->|returns: targets=["ecs-sd:8080"]<br/>__metrics_path__="/proxy/<id>/metrics"| P
+    E -.->|returns proxy address| P
     P -->|GET /proxy/<uuid>/metrics| E
     E -->|proxies to| T["Target<br/>Private IP"]
 ```
