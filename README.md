@@ -733,4 +733,6 @@ Additional permission needed to extract Fargate task ENI information:
 
 ## License
 
-MIT
+GNU General Public License v3.0 (GPL-3.0)
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
