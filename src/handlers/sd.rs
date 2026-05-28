@@ -5,6 +5,7 @@ use axum::{
     Json,
 };
 use crate::config::Mode;
+use crate::models::ProxyTarget;
 use crate::state::AppState;
 use crate::models::{MetadataLevel, SdQueryParams, Target};
 use serde_json::json;
@@ -16,8 +17,8 @@ use uuid::Uuid;
 
 /// Build a single SD target entry for proxy mode: the public_address becomes the
 /// scrape target and __metrics_path__ points through the proxy at the given UUID.
-fn build_proxy_sd_target(uuid: &Uuid, public_address: &str) -> Target {
-    let mut labels = HashMap::new();
+fn build_proxy_sd_target(uuid: &Uuid, proxy_target: &ProxyTarget, public_address: &str) -> Target {
+    let mut labels = proxy_target.labels.clone();
     labels.insert(
         "__metrics_path__".to_string(),
         format!("/proxy/{}/metrics", uuid),
@@ -40,7 +41,7 @@ pub async fn sd_handler(
         let routing = state.routing_table.read().await;
         let proxy_targets: Vec<Target> = routing
             .iter()
-            .map(|(uuid, _proxy_target)| build_proxy_sd_target(uuid, public_address))
+            .map(|(uuid, proxy_target)| build_proxy_sd_target(uuid, proxy_target, public_address))
             .collect();
         drop(routing);
 
@@ -414,14 +415,24 @@ mod tests {
     #[test]
     fn sd_proxy_mode_returns_public_address_as_target() {
         let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
-        let target = build_proxy_sd_target(&uuid, "ecs-sd.internal:8080");
+        let proxy_target = ProxyTarget {
+            address: "10.0.0.1:8080".to_string(),
+            route_id: uuid,
+            labels: HashMap::new(),
+        };
+        let target = build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:8080");
         assert_eq!(target.targets, vec!["ecs-sd.internal:8080"]);
     }
 
     #[test]
     fn sd_proxy_mode_sets_metrics_path_label() {
         let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
-        let target = build_proxy_sd_target(&uuid, "ecs-sd.internal:8080");
+        let proxy_target = ProxyTarget {
+            address: "10.0.0.1:8080".to_string(),
+            route_id: uuid,
+            labels: HashMap::new(),
+        };
+        let target = build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:8080");
         let expected_path = format!("/proxy/{}/metrics", uuid);
         assert_eq!(
             target.labels.get("__metrics_path__"),
@@ -432,7 +443,43 @@ mod tests {
     #[test]
     fn sd_proxy_mode_target_has_no_original_address() {
         let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
-        let target = build_proxy_sd_target(&uuid, "ecs-sd.internal:8080");
+        let proxy_target = ProxyTarget {
+            address: "10.0.0.1:8080".to_string(),
+            route_id: uuid,
+            labels: HashMap::new(),
+        };
+        let target = build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:8080");
         assert!(!target.targets.contains(&"10.0.0.5:8080".to_string()));
+    }
+
+    #[test]
+    fn sd_proxy_mode_preserves_meta_labels() {
+        let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
+        let mut labels = HashMap::new();
+        labels.insert(
+            "__meta_ecs_task_family".to_string(),
+            "o11y-bot".to_string(),
+        );
+        labels.insert(
+            "__meta_ecs_container_name".to_string(),
+            "ingestion".to_string(),
+        );
+        let proxy_target = ProxyTarget {
+            address: "10.0.0.1:8080".to_string(),
+            route_id: uuid,
+            labels,
+        };
+
+        let target = build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:8080");
+
+        assert_eq!(
+            target.labels.get("__meta_ecs_task_family"),
+            Some(&"o11y-bot".to_string())
+        );
+        assert_eq!(
+            target.labels.get("__meta_ecs_container_name"),
+            Some(&"ingestion".to_string())
+        );
+        assert!(target.labels.contains_key("__metrics_path__"));
     }
 }

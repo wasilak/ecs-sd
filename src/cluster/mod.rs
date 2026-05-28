@@ -7,6 +7,7 @@ pub struct GossipProxyTarget {
     /// UUID as string (avoid uuid crate trait dependency issue).
     pub route_id: String,
     pub address: String,
+    pub labels: std::collections::HashMap<String, String>,
 }
 
 /// Owns the `ChitchatHandle` and provides cluster-level helpers.

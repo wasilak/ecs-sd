@@ -326,9 +326,15 @@ fn empty_cluster_has_no_leader() {
 
 #[test]
 fn gossip_proxy_target_round_trips_json() {
+    let mut labels = std::collections::HashMap::new();
+    labels.insert(
+        "__meta_ecs_task_family".to_string(),
+        "o11y-bot".to_string(),
+    );
     let original = GossipProxyTarget {
         route_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
         address: "10.0.0.1:8080".to_string(),
+        labels,
     };
 
     let json = serde_json::to_string(&original).expect("serialize");
@@ -336,4 +342,5 @@ fn gossip_proxy_target_round_trips_json() {
 
     assert_eq!(round_tripped.route_id, original.route_id);
     assert_eq!(round_tripped.address, original.address);
+    assert_eq!(round_tripped.labels, original.labels);
 }

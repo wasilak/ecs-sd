@@ -8,6 +8,7 @@ use crate::models::Target;
 pub struct ProxyTarget {
     pub address: String,
     pub route_id: Uuid,
+    pub labels: HashMap<String, String>,
 }
 
 pub fn route_id(task_arn: &str, container_name: &str, container_id: &str) -> Uuid {
@@ -40,7 +41,14 @@ pub fn build_routing_table(targets: &[Target]) -> HashMap<Uuid, ProxyTarget> {
             .map(|s| s.as_str())
             .unwrap_or("");
         let uuid = route_id(task_arn, container_name, container_id);
-        table.insert(uuid, ProxyTarget { address, route_id: uuid });
+        table.insert(
+            uuid,
+            ProxyTarget {
+                address,
+                route_id: uuid,
+                labels: target.labels.clone(),
+            },
+        );
     }
     table
 }
@@ -97,6 +105,21 @@ mod tests {
         let table = build_routing_table(&targets);
         let entry = table.values().next().expect("should have one entry");
         assert_eq!(entry.address, "10.1.2.3:9090");
+    }
+
+    #[test]
+    fn build_routing_table_copies_labels() {
+        let targets = vec![make_target("10.1.2.3:9090", "arn:t", "web", "c1")];
+        let table = build_routing_table(&targets);
+        let entry = table.values().next().expect("should have one entry");
+        assert_eq!(
+            entry.labels.get("__meta_ecs_task_arn"),
+            Some(&"arn:t".to_string())
+        );
+        assert_eq!(
+            entry.labels.get("__meta_ecs_container_name"),
+            Some(&"web".to_string())
+        );
     }
 
     #[test]

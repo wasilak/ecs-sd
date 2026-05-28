@@ -326,6 +326,7 @@ async fn publish_cache_to_gossip(state: &AppState) {
         let gossip_rt: Vec<GossipProxyTarget> = rt.values().map(|pt| GossipProxyTarget {
             route_id: pt.route_id.to_string(),
             address: pt.address.clone(),
+            labels: pt.labels.clone(),
         }).collect();
         if let Ok(json) = serde_json::to_string(&gossip_rt) {
             cluster.publish_routing(&json).await;
