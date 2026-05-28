@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-config = { version = "1.8.16", default-features = false, features = ["rustls"] }
-aws-sdk-ecs = { version = "1.124.0", default-features = false, features = ["rustls"] }
-aws-sdk-ec2 = { version = "1.0", default-features = false, features = ["rustls"] }
-aws-sdk-sts = { version = "1.103", default-features = false, features = ["rustls"] }
+aws-config = { version = "1.8.16", default-features = false, features = ["rustls", "rt-tokio"] }
+aws-sdk-ecs = { version = "1.124.0", default-features = false, features = ["rustls", "rt-tokio"] }
+aws-sdk-ec2 = { version = "1.0", default-features = false, features = ["rustls", "rt-tokio"] }
+aws-sdk-sts = { version = "1.103", default-features = false, features = ["rustls", "rt-tokio"] }
 strum = { version = "0.28", features = ["derive"] }
 tokio = { version = "1.52.2", features = ["full"] }
 axum = "0.7"

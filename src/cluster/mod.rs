@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
-use chitchat::{ChitchatHandle, ChitchatId};
+use chitchat::ChitchatHandle;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 /// Serializable DTO for routing table entries gossiped via `ecs_sd.routing.v1`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +58,7 @@ impl ClusterState {
 /// Pure election logic: the leader is the lexicographically smallest node_id.
 ///
 /// This is a pub(crate) free function so it can be unit-tested without mocking chitchat.
+#[cfg(test)]
 pub(crate) fn elect_leader<'a>(live_node_ids: &[&'a str]) -> Option<&'a str> {
     live_node_ids.iter().copied().min()
 }
