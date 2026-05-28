@@ -289,13 +289,24 @@ impl DiscoveryService {
                                 .await
                             {
                                 Ok(ec2) => {
+                                    let target_ip = if network_mode == "awsvpc" {
+                                        match extract_fargate_private_ip(task) {
+                                            Some(ip) => ip,
+                                            None => {
+                                                warn!(
+                                                    "EC2 awsvpc task {:?} has no ENI private IP, skipping",
+                                                    task.task_arn()
+                                                );
+                                                continue;
+                                            }
+                                        }
+                                    } else {
+                                        ec2.private_ip.as_str()
+                                    };
+
                                     let labels = LabelBuilder::new(MetadataLevel::Aws)
                                         .with_container(container_def, port)
-                                        .with_network(
-                                            &ec2.private_ip,
-                                            &network_mode,
-                                            ec2.subnet_id.as_deref(),
-                                        )
+                                        .with_network(target_ip, &network_mode, ec2.subnet_id.as_deref())
                                         .with_task(task, task_def)
                                         .with_service(service)
                                         .with_cluster(cluster)
@@ -314,7 +325,7 @@ impl DiscoveryService {
                                         )
                                         .build();
 
-                                    targets.push(Target::new(&ec2.private_ip, port, labels));
+                                    targets.push(Target::new(target_ip, port, labels));
                                 }
                                 Err(e) => {
                                     warn!("Failed to resolve EC2 instance for task: {}", e);
@@ -528,5 +539,22 @@ mod tests {
             .attachments(attachment)
             .build();
         assert_eq!(extract_fargate_private_ip(&task), None);
+    }
+
+    #[test]
+    fn extract_fargate_ip_from_eni_attachment_for_ec2_awsvpc_shape() {
+        let eni_ip = KeyValuePair::builder()
+            .name("privateIPv4Address")
+            .value("10.157.8.169")
+            .build();
+        let attachment = Attachment::builder()
+            .r#type("ElasticNetworkInterface")
+            .details(eni_ip)
+            .build();
+        let task = aws_sdk_ecs::types::Task::builder()
+            .attachments(attachment)
+            .build();
+
+        assert_eq!(extract_fargate_private_ip(&task), Some("10.157.8.169"));
     }
 }
