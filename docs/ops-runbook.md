@@ -281,11 +281,6 @@ aws ecs update-service \
   --desired-count 5
 ```
 
-Or via Terraform:
-```bash
-terraform apply -var="desired_count=5"
-```
-
 **What happens:**
 1. ECS launches new tasks
 2. New tasks register in Cloud Map
@@ -495,11 +490,9 @@ echo "=== Health Check Complete ==="
 - [ECS Documentation](https://docs.aws.amazon.com/ecs/)
 - [Cloud Map Documentation](https://docs.aws.amazon.com/cloud-map/)
 - [ecs-sd Project README](../../README.md)
-- [Terraform Module](../../terraform/modules/ecs-sd-cluster/)
 
 ## Support
 
 For issues not covered in this runbook:
 1. Check application logs: CloudWatch `/ecs/ecs-sd-cluster`
-2. Review Terraform state: `terraform show`
-3. Open issue: [GitHub Issues](https://github.com/stepstone/ecs-sd/issues)
+2. Open issue: [GitHub Issues](https://github.com/stepstone/ecs-sd/issues)

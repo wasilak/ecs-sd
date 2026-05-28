@@ -191,13 +191,13 @@ services:
       - "8080:8080"
 ```
 
-### ECS Fargate with Terraform
+### ECS Fargate
 
-See [terraform/modules/ecs-sd-cluster](terraform/modules/ecs-sd-cluster/) for production-ready infrastructure including:
-- Cloud Map service discovery
-- Auto-scaling
-- Security groups
-- IAM roles
+Run ecs-sd as an ECS service with:
+- Cloud Map service discovery for cluster seed resolution
+- Auto-scaling policies
+- Security group rules for HTTP and gossip traffic
+- IAM roles with ECS/EC2/STS read permissions
 
 ## Building
 

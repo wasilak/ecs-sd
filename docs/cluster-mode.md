@@ -174,7 +174,7 @@ services:
 
 ### AWS ECS Fargate
 
-See the [Terraform module](../terraform/modules/ecs-sd-cluster/) for production-ready Fargate deployment with:
+For production-ready Fargate deployment, configure:
 - Cloud Map service discovery for seed addresses
 - Auto-scaling
 - Security group configuration
@@ -429,4 +429,3 @@ fields @timestamp
 - [Proxy Mode](proxy-mode.md) - Fargate support
 - [Self-Registration](self-registration.md) - Monitoring ecs-sd
 - [Operational Runbook](ops-runbook.md) - Production operations
-- [Terraform Module](../terraform/modules/ecs-sd-cluster/) - Infrastructure as code
