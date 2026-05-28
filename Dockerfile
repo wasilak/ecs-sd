@@ -1,16 +1,24 @@
-FROM rust:bookworm AS builder
+FROM rust:bookworm AS chef
 
 WORKDIR /build
+RUN cargo install cargo-chef --locked
 
-# Dependency caching: build only deps first using a stub main.
+FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo 'fn main() {}' > src/main.rs
-RUN cargo build --release
-RUN rm -f target/release/ecs-sd target/release/deps/ecs_sd*
-
-# Build the real binary; deps layer is reused as long as manifests are unchanged.
 COPY src ./src
-RUN touch src/main.rs && cargo build --release
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /build/recipe.json recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo chef cook --release --locked --recipe-path recipe.json
+
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release --locked
 
 FROM gcr.io/distroless/cc-debian12
 
@@ -18,6 +26,6 @@ COPY --from=builder /build/target/release/ecs-sd /ecs-sd
 
 LABEL org.opencontainers.image.source="https://github.com/wasilak/ecs-sd"
 LABEL org.opencontainers.image.description="Prometheus HTTP Service Discovery for AWS ECS"
-LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.licenses="GPL-3.0-only"
 
 ENTRYPOINT ["/ecs-sd"]

@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+.serena
+.planning
+target
+terraform/**/.terraform
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/.terraform.lock.hcl
+**/*.log
+**/*.tmp
