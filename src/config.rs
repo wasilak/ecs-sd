@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
@@ -120,6 +121,7 @@ pub struct Config {
     pub metadata_level: MetadataLevel,
     pub mode: Mode,
     pub public_address: Option<String>,
+    pub public_address_scheme: Option<String>,
     pub cluster_mode: ClusterMode,
     pub cluster_seeds: Vec<String>,
     pub gossip_port: u16,
@@ -136,6 +138,7 @@ impl Default for Config {
             metadata_level: MetadataLevel::default(),
             mode: Mode::Discovery,
             public_address: None,
+            public_address_scheme: None,
             cluster_mode: ClusterMode::Standalone,
             cluster_seeds: Vec::new(),
             gossip_port: 8081,
@@ -196,11 +199,8 @@ impl Config {
             ));
         }
 
-        if args.mode == Mode::Proxy && args.public_address.is_none() {
-            return Err(ConfigError::InvalidValue(
-                "--public-address / ECS_SD_PUBLIC_ADDRESS is required in proxy mode".to_string(),
-            ));
-        }
+        let (public_address, public_address_scheme) =
+            normalize_public_address(&args.mode, args.public_address.as_deref())?;
 
         let cluster_seeds: Vec<String> = if let Some(ref seeds_str) = args.cluster_seeds {
             seeds_str
@@ -239,7 +239,8 @@ impl Config {
             refresh_interval,
             metadata_level: args.metadata_level,
             mode: args.mode,
-            public_address: args.public_address,
+            public_address,
+            public_address_scheme,
             cluster_mode: args.cluster_mode,
             cluster_seeds,
             gossip_port: args.gossip_port,
@@ -256,6 +257,75 @@ fn default_node_id(gossip_port: u16) -> String {
 
 fn parse_metadata_level(input: &str) -> Result<MetadataLevel, String> {
     MetadataLevel::from_str(input)
+}
+
+fn normalize_public_address(
+    mode: &Mode,
+    raw_public_address: Option<&str>,
+) -> Result<(Option<String>, Option<String>), ConfigError> {
+    let Some(raw_public_address) = raw_public_address else {
+        if *mode == Mode::Proxy {
+            return Err(ConfigError::InvalidValue(
+                "--public-address / ECS_SD_PUBLIC_ADDRESS is required in proxy mode".to_string(),
+            ));
+        }
+        return Ok((None, None));
+    };
+
+    let parsed = reqwest::Url::parse(raw_public_address).map_err(|_| {
+        ConfigError::InvalidValue(format!(
+            "invalid --public-address / ECS_SD_PUBLIC_ADDRESS '{}': expected full URL with http:// or https://",
+            raw_public_address
+        ))
+    })?;
+
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(ConfigError::InvalidValue(format!(
+            "invalid --public-address / ECS_SD_PUBLIC_ADDRESS '{}': only http:// or https:// are supported",
+            raw_public_address
+        )));
+    }
+
+    if parsed.username() != "" || parsed.password().is_some() {
+        return Err(ConfigError::InvalidValue(format!(
+            "invalid --public-address / ECS_SD_PUBLIC_ADDRESS '{}': user info is not allowed",
+            raw_public_address
+        )));
+    }
+
+    if parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(ConfigError::InvalidValue(format!(
+            "invalid --public-address / ECS_SD_PUBLIC_ADDRESS '{}': path, query, and fragment are not allowed",
+            raw_public_address
+        )));
+    }
+
+    let host = parsed.host_str().ok_or_else(|| {
+        ConfigError::InvalidValue(format!(
+            "invalid --public-address / ECS_SD_PUBLIC_ADDRESS '{}': host is required",
+            raw_public_address
+        ))
+    })?;
+
+    if host.parse::<IpAddr>().is_ok() {
+        return Err(ConfigError::InvalidValue(format!(
+            "invalid --public-address / ECS_SD_PUBLIC_ADDRESS '{}': host must be a domain name",
+            raw_public_address
+        )));
+    }
+
+    let port = parsed.port_or_known_default().ok_or_else(|| {
+        ConfigError::InvalidValue(format!(
+            "invalid --public-address / ECS_SD_PUBLIC_ADDRESS '{}': missing port and unknown default for scheme",
+            raw_public_address
+        ))
+    })?;
+
+    Ok((
+        Some(format!("{}:{}", host, port)),
+        Some(scheme.to_string()),
+    ))
 }
 
 #[cfg(test)]
@@ -299,9 +369,11 @@ mod tests {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
-        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "ecs-sd.local:8080"])
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "http://ecs-sd.local:8080"])
             .expect("should succeed");
         assert_eq!(config.mode, Mode::Proxy);
+        assert_eq!(config.public_address.as_deref(), Some("ecs-sd.local:8080"));
+        assert_eq!(config.public_address_scheme.as_deref(), Some("http"));
     }
 
     #[test]
@@ -309,11 +381,13 @@ mod tests {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::set_var("ECS_SD_MODE", "proxy");
-            std::env::set_var("ECS_SD_PUBLIC_ADDRESS", "host:8080");
+            std::env::set_var("ECS_SD_PUBLIC_ADDRESS", "http://host.example:8080");
         }
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
         assert_eq!(config.mode, Mode::Proxy);
+        assert_eq!(config.public_address.as_deref(), Some("host.example:8080"));
+        assert_eq!(config.public_address_scheme.as_deref(), Some("http"));
         unsafe {
             std::env::remove_var("ECS_SD_MODE");
             std::env::remove_var("ECS_SD_PUBLIC_ADDRESS");
@@ -335,8 +409,18 @@ mod tests {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
-        Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "10.0.0.1:8080"])
-            .expect("should succeed");
+        let config = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--mode",
+            "proxy",
+            "--public-address",
+            "https://ecs-sd.example.com",
+        ])
+        .expect("should succeed");
+        assert_eq!(config.public_address.as_deref(), Some("ecs-sd.example.com:443"));
+        assert_eq!(config.public_address_scheme.as_deref(), Some("https"));
     }
 
     #[test]
@@ -345,6 +429,81 @@ mod tests {
         clear_mode_env_vars();
         clear_cluster_env_vars();
         Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+    }
+
+    #[test]
+    fn public_address_requires_scheme() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let err = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--mode",
+            "proxy",
+            "--public-address",
+            "ecs-sd.example.com:8080",
+        ])
+        .expect_err("should reject missing scheme");
+        assert!(err.to_string().contains("http:// or https://"), "error was: {err}");
+    }
+
+    #[test]
+    fn public_address_rejects_unsupported_scheme() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let err = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--mode",
+            "proxy",
+            "--public-address",
+            "ftp://ecs-sd.example.com:8080",
+        ])
+        .expect_err("should reject unsupported scheme");
+        assert!(err.to_string().contains("only http:// or https://"), "error was: {err}");
+    }
+
+    #[test]
+    fn public_address_rejects_ip_host() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let err = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--mode",
+            "proxy",
+            "--public-address",
+            "http://10.0.0.10:8080",
+        ])
+        .expect_err("should reject IP host");
+        assert!(err.to_string().contains("host must be a domain name"), "error was: {err}");
+    }
+
+    #[test]
+    fn public_address_rejects_path_query_and_fragment() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let err = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--mode",
+            "proxy",
+            "--public-address",
+            "https://ecs-sd.example.com/proxy?x=1#frag",
+        ])
+        .expect_err("should reject path/query/fragment");
+        assert!(
+            err.to_string().contains("path, query, and fragment are not allowed"),
+            "error was: {err}"
+        );
     }
 
     #[test]

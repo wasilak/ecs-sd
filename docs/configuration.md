@@ -118,24 +118,27 @@ Choose between direct target exposure or reverse proxy mode.
 ecs-sd --mode discovery
 
 # Proxy mode for Fargate
-ecs-sd --mode proxy --public-address ecs-sd.example.com:8080
+ecs-sd --mode proxy --public-address https://ecs-sd.example.com
 ```
 
 See [Proxy Mode](proxy-mode.md) for detailed documentation.
 
 ### `--public-address` / `ECS_SD_PUBLIC_ADDRESS`
 
-**Required when `mode=proxy`.** The address Prometheus uses to reach ecs-sd.
+**Required when `mode=proxy`.** The URL Prometheus uses to reach ecs-sd.
+
+Must be a full URL with domain and scheme (`http://` or `https://`).
+If port is omitted, ecs-sd defaults to `80` for `http` and `443` for `https`.
 
 ```bash
 # DNS name
-ecs-sd --mode proxy --public-address ecs-sd.example.com:8080
+ecs-sd --mode proxy --public-address https://ecs-sd.example.com
 
 # Load balancer address
-ecs-sd --mode proxy --public-address ecs-sd-lb.internal:8080
+ecs-sd --mode proxy --public-address http://ecs-sd-lb.internal:8080
 
-# IP address
-ecs-sd --mode proxy --public-address 10.0.1.100:8080
+# Explicit non-default HTTPS port
+ecs-sd --mode proxy --public-address https://ecs-sd.example.com:8443
 ```
 
 This address is returned in `/sd` responses as the scrape target.

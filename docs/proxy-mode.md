@@ -91,7 +91,11 @@ Enable proxy mode with the `--mode` flag:
 | Flag | Env Var | Required | Description |
 |------|---------|----------|-------------|
 | `--mode` | `ECS_SD_MODE` | Yes | Set to `proxy` |
-| `--public-address` | `ECS_SD_PUBLIC_ADDRESS` | Yes | Address Prometheus uses to reach ecs-sd |
+| `--public-address` | `ECS_SD_PUBLIC_ADDRESS` | Yes | URL Prometheus uses to reach ecs-sd (`http://` or `https://`) |
+
+`ECS_SD_PUBLIC_ADDRESS` must include scheme and domain. In proxy mode, ecs-sd sets
+the Prometheus `__scheme__` label from this URL scheme to ensure scrape protocol
+matches (`http` vs `https`).
 
 ### Example
 
@@ -99,7 +103,7 @@ Enable proxy mode with the `--mode` flag:
 ecs-sd \
   --clusters my-cluster \
   --mode proxy \
-  --public-address ecs-sd.example.com:8080 \
+  --public-address https://ecs-sd.example.com \
   --listen 0.0.0.0:8080
 ```
 

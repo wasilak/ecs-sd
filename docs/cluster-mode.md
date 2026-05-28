@@ -276,7 +276,7 @@ services:
     environment:
       ECS_SD_CLUSTERS: production
       ECS_SD_MODE: proxy
-      ECS_SD_PUBLIC_ADDRESS: ecs-sd-lb.example.com:8080
+      ECS_SD_PUBLIC_ADDRESS: https://ecs-sd-lb.example.com
       ECS_SD_CLUSTER_MODE: cluster
       ECS_SD_CLUSTER_SEEDS: "ecs-sd-2:8081,ecs-sd-3:8081"
       ECS_SD_NODE_ID: "node-1"

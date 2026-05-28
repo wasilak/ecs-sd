@@ -37,7 +37,7 @@ docker run -p 8080:8080 \
 docker run -p 8080:8080 \
   -e ECS_SD_CLUSTERS=my-cluster \
   -e ECS_SD_MODE=proxy \
-  -e ECS_SD_PUBLIC_ADDRESS=ecs-sd.example.com:8080 \
+  -e ECS_SD_PUBLIC_ADDRESS=https://ecs-sd.example.com \
   -e AWS_REGION=eu-west-1 \
   ghcr.io/wasilak/ecs-sd
 ```
