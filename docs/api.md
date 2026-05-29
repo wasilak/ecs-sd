@@ -58,6 +58,8 @@ During migration, legacy labels (`__meta_ecs_cluster`, `__meta_ecs_service`) are
 | `cluster` | string | — | Filter by cluster name |
 | `service` | string | — | Filter by ECS service name |
 | `family` | string | — | Filter by task definition family |
+| `tag_{name}` | string | — | Filter by ECS tag label suffix from `__meta_ecs_tag_*` (e.g. `tag_task_env=prod`) |
+| `filter_mode` | string | `and` | How to combine all provided filters: `and` or `or` |
 
 ### Response Format
 
@@ -150,6 +152,16 @@ curl "http://ecs-sd:8080/sd?service=api-gateway"
 **Combined filters:**
 ```bash
 curl "http://ecs-sd:8080/sd?level=service&cluster=production"
+```
+
+**Tag filters (same key can be repeated):**
+```bash
+curl "http://ecs-sd:8080/sd?tag_task_env=prod&tag_task_team=obs"
+```
+
+**OR mode across filters:**
+```bash
+curl "http://ecs-sd:8080/sd?cluster=production&tag_task_team=platform&filter_mode=or"
 ```
 
 ### Prometheus Configuration

@@ -12,6 +12,19 @@ pub use label_builder::LabelBuilder;
 
 use serde::Deserialize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FilterMode {
+    And,
+    Or,
+}
+
+impl Default for FilterMode {
+    fn default() -> Self {
+        Self::And
+    }
+}
+
 /// Query parameters for the /sd endpoint
 #[derive(Debug, Deserialize)]
 pub struct SdQueryParams {
@@ -20,4 +33,21 @@ pub struct SdQueryParams {
     pub family: Option<String>,
     /// Metadata level override; falls back to configured default when omitted.
     pub level: Option<MetadataLevel>,
+    #[serde(default)]
+    pub filter_mode: FilterMode,
+    #[serde(skip)]
+    pub tag_filters: Vec<(String, String)>,
+}
+
+impl Default for SdQueryParams {
+    fn default() -> Self {
+        Self {
+            cluster: None,
+            service: None,
+            family: None,
+            level: None,
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
+        }
+    }
 }

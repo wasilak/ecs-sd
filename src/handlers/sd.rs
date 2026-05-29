@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Query, RawQuery, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -7,7 +7,7 @@ use axum::{
 use crate::config::Mode;
 use crate::models::ProxyTarget;
 use crate::state::AppState;
-use crate::models::{MetadataLevel, SdQueryParams, Target};
+use crate::models::{FilterMode, MetadataLevel, SdQueryParams, Target};
 use serde_json::json;
 use tracing::info;
 use std::collections::HashMap;
@@ -37,8 +37,13 @@ fn build_proxy_sd_target(
 
 pub async fn sd_handler(
     State(state): State<AppState>,
-    Query(params): Query<SdQueryParams>,
+    Query(mut params): Query<SdQueryParams>,
+    RawQuery(raw_query): RawQuery,
 ) -> Response {
+    params.tag_filters = extract_tag_filters(raw_query.as_deref());
+
+    let level = params.level.unwrap_or(state.config.metadata_level);
+
     // In proxy mode, return routing-table targets with public_address as target
     // and __metrics_path__ pointing through the proxy.
     if state.config.mode == Mode::Proxy {
@@ -55,8 +60,11 @@ pub async fn sd_handler(
             .map(|(uuid, proxy_target)| {
                 build_proxy_sd_target(uuid, proxy_target, public_address, public_address_scheme)
             })
+            .map(|target| filter_labels_by_level(&target, level))
             .collect();
         drop(routing);
+
+        let filtered = filter_targets(proxy_targets, &params);
 
         let last_refresh = *state.last_refresh.read().await;
         let cache_age_seconds = calculate_cache_age_seconds(last_refresh, SystemTime::now());
@@ -66,10 +74,8 @@ pub async fn sd_handler(
             "fresh"
         };
 
-        return build_sd_response_with_cache_age(proxy_targets, cache_age_seconds, cache_state);
+        return build_sd_response_with_cache_age(filtered, cache_age_seconds, cache_state);
     }
-
-    let level = params.level.unwrap_or(state.config.metadata_level);
 
     let cache = state.cache.read().await;
     let maybe_targets = cache
@@ -216,37 +222,58 @@ fn filter_targets(targets: Vec<Target>, params: &SdQueryParams) -> Vec<Target> {
     targets
         .into_iter()
         .filter(|target| {
-            // Check cluster filter
+            let mut checks = Vec::new();
+
             if let Some(ref cluster) = params.cluster {
                 let target_cluster = target
                     .labels
                     .get("__meta_ecs_cluster_name")
                     .or_else(|| target.labels.get("__meta_ecs_cluster"));
-                if target_cluster.map(|s| s.as_str()) != Some(cluster.as_str()) {
-                    return false;
-                }
+                checks.push(target_cluster.map(|s| s.as_str()) == Some(cluster.as_str()));
             }
 
-            // Check service filter
             if let Some(ref service) = params.service {
                 let target_service = target
                     .labels
                     .get("__meta_ecs_service_name")
                     .or_else(|| target.labels.get("__meta_ecs_service"));
-                if target_service.map(|s| s.as_str()) != Some(service.as_str()) {
-                    return false;
-                }
+                checks.push(target_service.map(|s| s.as_str()) == Some(service.as_str()));
             }
 
-            // Check family filter
             if let Some(ref family) = params.family {
                 let target_family = target.labels.get("__meta_ecs_task_family");
-                if target_family.map(|s| s.as_str()) != Some(family.as_str()) {
-                    return false;
-                }
+                checks.push(target_family.map(|s| s.as_str()) == Some(family.as_str()));
             }
 
-            true
+            for (tag_name, tag_value) in &params.tag_filters {
+                let label_key = format!("__meta_ecs_tag_{}", tag_name);
+                let target_tag = target.labels.get(&label_key);
+                checks.push(target_tag.map(|s| s.as_str()) == Some(tag_value.as_str()));
+            }
+
+            if checks.is_empty() {
+                return true;
+            }
+
+            match params.filter_mode {
+                FilterMode::And => checks.into_iter().all(|m| m),
+                FilterMode::Or => checks.into_iter().any(|m| m),
+            }
+        })
+        .collect()
+}
+
+fn extract_tag_filters(raw_query: Option<&str>) -> Vec<(String, String)> {
+    let Some(raw_query) = raw_query else {
+        return Vec::new();
+    };
+
+    serde_urlencoded::from_str::<Vec<(String, String)>>(raw_query)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(key, value)| {
+            key.strip_prefix("tag_")
+                .map(|tag_name| (tag_name.to_string(), value))
         })
         .collect()
 }
@@ -303,6 +330,8 @@ mod tests {
             service: None,
             family: None,
             level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -324,6 +353,8 @@ mod tests {
             service: None,
             family: None,
             level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -343,6 +374,8 @@ mod tests {
             service: Some("api".to_string()),
             family: None,
             level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -361,6 +394,8 @@ mod tests {
             service: None,
             family: None,
             level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -384,6 +419,8 @@ mod tests {
             service: None,
             family: None,
             level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -407,6 +444,8 @@ mod tests {
             service: Some("api".to_string()),
             family: None,
             level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -442,6 +481,8 @@ mod tests {
             service: Some("api".to_string()),
             family: None,
             level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
         };
 
         let filtered = filter_targets(targets, &params);
@@ -734,5 +775,174 @@ mod tests {
         let target = build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:443", "https");
 
         assert_eq!(target.labels.get("__scheme__"), Some(&"https".to_string()));
+    }
+
+    #[test]
+    fn sd_proxy_mode_filters_by_cluster_service_and_family() {
+        let mk_target = |cluster: &str, service: &str, family: &str| {
+            let uuid = Uuid::new_v5(
+                &Uuid::NAMESPACE_URL,
+                format!("{}:{}:{}", cluster, service, family).as_bytes(),
+            );
+            let mut labels = HashMap::new();
+            labels.insert("__meta_ecs_cluster_name".to_string(), cluster.to_string());
+            labels.insert("__meta_ecs_service_name".to_string(), service.to_string());
+            labels.insert("__meta_ecs_task_family".to_string(), family.to_string());
+
+            let proxy_target = ProxyTarget {
+                address: "10.0.0.1:8080".to_string(),
+                route_id: uuid,
+                labels,
+            };
+
+            build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:8080", "http")
+        };
+
+        let targets = vec![
+            mk_target("prod", "api", "api-task"),
+            mk_target("prod", "worker", "worker-task"),
+            mk_target("dev", "api", "api-task"),
+        ];
+
+        let params = SdQueryParams {
+            cluster: Some("prod".to_string()),
+            service: Some("api".to_string()),
+            family: Some("api-task".to_string()),
+            level: Some(MetadataLevel::Aws),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
+        };
+
+        let filtered = filter_targets(targets, &params);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(
+            filtered[0].labels.get("__meta_ecs_cluster_name"),
+            Some(&"prod".to_string())
+        );
+        assert_eq!(
+            filtered[0].labels.get("__meta_ecs_service_name"),
+            Some(&"api".to_string())
+        );
+        assert_eq!(
+            filtered[0].labels.get("__meta_ecs_task_family"),
+            Some(&"api-task".to_string())
+        );
+    }
+
+    #[test]
+    fn sd_proxy_mode_level_filtering_can_remove_filter_labels() {
+        let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"proxy-level-filter");
+        let mut labels = HashMap::new();
+        labels.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
+        labels.insert("__meta_ecs_service_name".to_string(), "api".to_string());
+        labels.insert("__meta_ecs_task_family".to_string(), "api-task".to_string());
+
+        let proxy_target = ProxyTarget {
+            address: "10.0.0.1:8080".to_string(),
+            route_id: uuid,
+            labels,
+        };
+
+        let target = build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:8080", "http");
+        let container_level_target = filter_labels_by_level(&target, MetadataLevel::Container);
+
+        let params = SdQueryParams {
+            cluster: Some("prod".to_string()),
+            service: None,
+            family: None,
+            level: Some(MetadataLevel::Container),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
+        };
+
+        let filtered = filter_targets(vec![container_level_target], &params);
+        assert_eq!(
+            filtered.len(), 0,
+            "cluster filter cannot match after container-level label filtering"
+        );
+    }
+
+    #[test]
+    fn test_extract_tag_filters_allows_multiple_same_tag() {
+        let filters = extract_tag_filters(Some("tag_task_env=prod&tag_task_env=staging&cluster=prod"));
+        assert_eq!(
+            filters,
+            vec![
+                ("task_env".to_string(), "prod".to_string()),
+                ("task_env".to_string(), "staging".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_filter_tag_filters_default_and() {
+        let mut labels1 = HashMap::new();
+        labels1.insert("__meta_ecs_tag_task_env".to_string(), "prod".to_string());
+        labels1.insert("__meta_ecs_tag_task_team".to_string(), "obs".to_string());
+
+        let mut labels2 = HashMap::new();
+        labels2.insert("__meta_ecs_tag_task_env".to_string(), "prod".to_string());
+
+        let targets = vec![
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels1,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels2,
+            },
+        ];
+
+        let params = SdQueryParams {
+            cluster: None,
+            service: None,
+            family: None,
+            level: Some(MetadataLevel::Aws),
+            filter_mode: FilterMode::And,
+            tag_filters: vec![
+                ("task_env".to_string(), "prod".to_string()),
+                ("task_team".to_string(), "obs".to_string()),
+            ],
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].targets, vec!["10.0.0.1:8080".to_string()]);
+    }
+
+    #[test]
+    fn test_filter_or_mode_with_mixed_filters() {
+        let mut labels1 = HashMap::new();
+        labels1.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
+        labels1.insert("__meta_ecs_tag_task_team".to_string(), "obs".to_string());
+
+        let mut labels2 = HashMap::new();
+        labels2.insert("__meta_ecs_cluster_name".to_string(), "dev".to_string());
+        labels2.insert("__meta_ecs_tag_task_team".to_string(), "platform".to_string());
+
+        let targets = vec![
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels1,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels2,
+            },
+        ];
+
+        let params = SdQueryParams {
+            cluster: Some("prod".to_string()),
+            service: None,
+            family: None,
+            level: Some(MetadataLevel::Aws),
+            filter_mode: FilterMode::Or,
+            tag_filters: vec![("task_team".to_string(), "platform".to_string())],
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 2);
     }
 }
