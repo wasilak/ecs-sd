@@ -34,6 +34,26 @@ pub(crate) fn filter_hop_by_hop_headers(mut headers: HeaderMap) -> HeaderMap {
     headers
 }
 
+/// Strip sensitive headers unless explicitly allowed by configuration.
+pub(crate) fn filter_sensitive_headers(mut headers: HeaderMap, allow_sensitive: bool) -> HeaderMap {
+    if allow_sensitive {
+        return headers;
+    }
+
+    const SENSITIVE_HEADERS: &[&str] = &[
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+    ];
+
+    for name in SENSITIVE_HEADERS {
+        headers.remove(HeaderName::from_static(name));
+    }
+
+    headers
+}
+
 /// Parse the X-Prometheus-Scrape-Timeout-Seconds header into a Duration.
 /// Accepts values > 0.0 and <= 300.0. All other values (absent, unparseable, zero,
 /// negative, or > 300) fall back to the 30-second default.
@@ -106,6 +126,7 @@ pub async fn proxy_handler(
 
     // Strip hop-by-hop headers before forwarding.
     let forwarded = filter_hop_by_hop_headers(headers);
+    let forwarded = filter_sensitive_headers(forwarded, state.config.proxy_forward_sensitive_headers);
 
     // Start timer for proxy metrics
     let timer = state.metrics.proxy_duration.start_timer();
@@ -239,5 +260,31 @@ mod tests {
         );
         let result = filter_hop_by_hop_headers(headers);
         assert!(result.contains_key("authorization"));
+    }
+
+    #[test]
+    fn filter_sensitive_headers_strips_authorization_and_cookie_by_default() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer tok"));
+        headers.insert("cookie", HeaderValue::from_static("session=abc"));
+        headers.insert("accept", HeaderValue::from_static("application/json"));
+
+        let result = filter_sensitive_headers(headers, false);
+
+        assert!(!result.contains_key("authorization"));
+        assert!(!result.contains_key("cookie"));
+        assert!(result.contains_key("accept"));
+    }
+
+    #[test]
+    fn filter_sensitive_headers_keeps_sensitive_when_enabled() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer tok"));
+        headers.insert("cookie", HeaderValue::from_static("session=abc"));
+
+        let result = filter_sensitive_headers(headers, true);
+
+        assert!(result.contains_key("authorization"));
+        assert!(result.contains_key("cookie"));
     }
 }

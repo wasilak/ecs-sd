@@ -127,6 +127,14 @@ pub struct Args {
         help = "Minimum interval between accepted POST /sd/refresh requests"
     )]
     pub refresh_min_interval: Duration,
+
+    #[arg(
+        long,
+        env = "ECS_SD_FORWARD_SENSITIVE_HEADERS",
+        default_value = "false",
+        help = "Whether proxy mode forwards sensitive headers to upstream targets"
+    )]
+    pub proxy_forward_sensitive_headers: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +153,7 @@ pub struct Config {
     pub metrics_port: Option<u16>,
     pub refresh_token: Option<String>,
     pub refresh_min_interval: u64,
+    pub proxy_forward_sensitive_headers: bool,
 }
 
 impl Default for Config {
@@ -164,6 +173,7 @@ impl Default for Config {
             metrics_port: None,
             refresh_token: None,
             refresh_min_interval: 30,
+            proxy_forward_sensitive_headers: false,
         }
     }
 }
@@ -281,6 +291,7 @@ impl Config {
             metrics_port: args.metrics_port,
             refresh_token: args.refresh_token,
             refresh_min_interval,
+            proxy_forward_sensitive_headers: args.proxy_forward_sensitive_headers,
         })
     }
 }
@@ -870,6 +881,30 @@ mod tests {
                 .to_string()
                 .contains("refresh min interval must be greater than 0")
         );
+    }
+
+    #[test]
+    fn proxy_forward_sensitive_headers_defaults_to_false() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert!(!config.proxy_forward_sensitive_headers);
+    }
+
+    #[test]
+    fn proxy_forward_sensitive_headers_overridable_via_flag() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--proxy-forward-sensitive-headers",
+        ])
+        .expect("should succeed");
+        assert!(config.proxy_forward_sensitive_headers);
     }
 
     #[test]
