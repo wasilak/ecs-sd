@@ -22,7 +22,9 @@ Health check endpoint for load balancers and monitoring.
 
 ```json
 {
-  "status": "healthy"
+  "status": "healthy",
+  "app": "ecs-sd",
+  "version": "0.3.2"
 }
 ```
 
