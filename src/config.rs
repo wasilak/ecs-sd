@@ -766,4 +766,26 @@ mod tests {
             std::env::remove_var("ECS_SD_METRICS_PORT");
         }
     }
+
+    #[test]
+    fn configuration_docs_proxy_examples_use_full_url_public_address() {
+        let docs = include_str!("../docs/configuration.md");
+
+        assert!(
+            docs.contains("--public-address https://ecs-sd.example.com"),
+            "CLI proxy example must show full URL with scheme"
+        );
+        assert!(
+            docs.contains("ECS_SD_PUBLIC_ADDRESS: https://ecs-sd.example.com:8080"),
+            "docker-compose example must show full URL with scheme"
+        );
+        assert!(
+            !docs.contains("--public-address ecs-sd.example.com:8080"),
+            "docs must not use bare host:port for --public-address"
+        );
+        assert!(
+            !docs.contains("ECS_SD_PUBLIC_ADDRESS: ecs-sd.example.com:8080"),
+            "docs must not use bare host:port for ECS_SD_PUBLIC_ADDRESS"
+        );
+    }
 }

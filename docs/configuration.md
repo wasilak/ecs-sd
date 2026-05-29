@@ -258,7 +258,7 @@ ecs-sd \
   --clusters production \
   --listen 0.0.0.0:8080 \
   --mode proxy \
-  --public-address ecs-sd.example.com:8080 \
+  --public-address https://ecs-sd.example.com:8080 \
   --metadata-level task
 ```
 
@@ -377,7 +377,7 @@ services:
     environment:
       ECS_SD_CLUSTERS: production
       ECS_SD_MODE: proxy
-      ECS_SD_PUBLIC_ADDRESS: ecs-sd.example.com:8080
+      ECS_SD_PUBLIC_ADDRESS: https://ecs-sd.example.com:8080
       ECS_SD_METRICS_PORT: "9090"
     ports:
       - "8080:8080"

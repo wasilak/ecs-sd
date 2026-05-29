@@ -12,6 +12,22 @@ use crate::models::{build_routing_table, MetadataLevel, ProxyTarget, Target};
 
 use crate::handlers::sd::filter_labels_by_level;
 
+fn migrate_target_label_schema(target: &mut Target) {
+    if let Some(cluster) = target.labels.remove("__meta_ecs_cluster") {
+        target
+            .labels
+            .entry("__meta_ecs_cluster_name".to_string())
+            .or_insert(cluster);
+    }
+
+    if let Some(service) = target.labels.remove("__meta_ecs_service") {
+        target
+            .labels
+            .entry("__meta_ecs_service_name".to_string())
+            .or_insert(service);
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub cache: Arc<RwLock<HashMap<MetadataLevel, Vec<Target>>>>,
@@ -58,6 +74,11 @@ impl AppState {
     /// also rebuilds the routing table. Called from both the background refresh loop
     /// (main.rs) and the manual POST /refresh handler (sd.rs), ensuring PROX-06.
     pub async fn replace_cache_and_routing(&self, targets_aws: Vec<Target>) {
+        let mut targets_aws = targets_aws;
+        for target in &mut targets_aws {
+            migrate_target_label_schema(target);
+        }
+
         let targets_cluster: Vec<Target> = targets_aws
             .iter()
             .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
@@ -94,5 +115,56 @@ impl AppState {
             let mut rt = self.routing_table.write().await;
             *rt = routing;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_target_label_schema_maps_legacy_keys_to_canonical_names() {
+        let mut target = Target {
+            targets: vec!["10.0.0.1:8080".to_string()],
+            labels: HashMap::from([
+                ("__meta_ecs_cluster".to_string(), "prod".to_string()),
+                ("__meta_ecs_service".to_string(), "api".to_string()),
+            ]),
+        };
+
+        migrate_target_label_schema(&mut target);
+
+        assert_eq!(
+            target.labels.get("__meta_ecs_cluster_name").map(String::as_str),
+            Some("prod")
+        );
+        assert_eq!(
+            target.labels.get("__meta_ecs_service_name").map(String::as_str),
+            Some("api")
+        );
+        assert!(!target.labels.contains_key("__meta_ecs_cluster"));
+        assert!(!target.labels.contains_key("__meta_ecs_service"));
+    }
+
+    #[test]
+    fn migrate_target_label_schema_keeps_existing_canonical_values() {
+        let mut target = Target {
+            targets: vec!["10.0.0.1:8080".to_string()],
+            labels: HashMap::from([
+                ("__meta_ecs_cluster".to_string(), "legacy-prod".to_string()),
+                (
+                    "__meta_ecs_cluster_name".to_string(),
+                    "canonical-prod".to_string(),
+                ),
+            ]),
+        };
+
+        migrate_target_label_schema(&mut target);
+
+        assert_eq!(
+            target.labels.get("__meta_ecs_cluster_name").map(String::as_str),
+            Some("canonical-prod")
+        );
+        assert!(!target.labels.contains_key("__meta_ecs_cluster"));
     }
 }

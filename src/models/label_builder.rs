@@ -287,7 +287,7 @@ impl LabelBuilder {
         // Service level
         if self.level.includes(MetadataLevel::Service) {
             if let Some(data) = self.service_data {
-                labels.insert("__meta_ecs_service".to_string(), data.name);
+                labels.insert("__meta_ecs_service_name".to_string(), data.name);
                 labels.insert("__meta_ecs_service_arn".to_string(), data.arn);
                 labels.insert("__meta_ecs_service_status".to_string(), data.status);
                 labels.insert("__meta_ecs_desired_count".to_string(), data.desired_count.to_string());
@@ -304,7 +304,7 @@ impl LabelBuilder {
         // Cluster level
         if self.level.includes(MetadataLevel::Cluster) {
             if let Some(data) = self.cluster_data {
-                labels.insert("__meta_ecs_cluster".to_string(), data.name);
+                labels.insert("__meta_ecs_cluster_name".to_string(), data.name);
                 labels.insert("__meta_ecs_cluster_arn".to_string(), data.arn);
                 for (k, v) in data.tags {
                     labels.insert(
@@ -429,6 +429,43 @@ mod tests {
         let labels = builder.build();
         assert!(!labels.contains_key("__meta_ecs_ec2_instance_id"));
         assert!(!labels.contains_key("__meta_ecs_tag_ec2_name"));
+    }
+
+    #[test]
+    fn test_service_and_cluster_emit_canonical_name_labels() {
+        let labels = LabelBuilder {
+            level: MetadataLevel::Cluster,
+            container_data: None,
+            network_data: None,
+            task_data: None,
+            service_data: Some(ServiceData {
+                name: "api".to_string(),
+                arn: "arn:service".to_string(),
+                status: "ACTIVE".to_string(),
+                desired_count: 2,
+                running_count: 2,
+                tags: HashMap::new(),
+            }),
+            cluster_data: Some(ClusterData {
+                name: "prod".to_string(),
+                arn: "arn:cluster".to_string(),
+                tags: HashMap::new(),
+            }),
+            aws_data: None,
+            ec2_data: None,
+        }
+        .build();
+
+        assert_eq!(
+            labels.get("__meta_ecs_service_name").map(String::as_str),
+            Some("api")
+        );
+        assert_eq!(
+            labels.get("__meta_ecs_cluster_name").map(String::as_str),
+            Some("prod")
+        );
+        assert!(!labels.contains_key("__meta_ecs_service"));
+        assert!(!labels.contains_key("__meta_ecs_cluster"));
     }
 
     #[test]

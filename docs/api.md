@@ -47,6 +47,9 @@ curl http://ecs-sd:8080/health
 
 Returns scrape targets in Prometheus `http_sd_configs` format.
 
+Filtering uses canonical labels (`__meta_ecs_cluster_name`, `__meta_ecs_service_name`).
+During migration, legacy labels (`__meta_ecs_cluster`, `__meta_ecs_service`) are also accepted for filtering compatibility.
+
 ### Query Parameters
 
 | Parameter | Type | Default | Description |
@@ -171,14 +174,19 @@ Triggers an immediate cache refresh from AWS.
 
 ### Response
 
-Returns same format as `GET /sd` — the updated targets.
+```json
+{
+  "status": "ok",
+  "targets_discovered": 42
+}
+```
 
 ### Status Codes
 
 | Code | Meaning |
 |------|---------|
 | 200 | Refresh successful |
-| 503 | Refresh failed (returns stale data) |
+
 
 ### Example
 

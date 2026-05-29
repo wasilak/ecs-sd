@@ -287,12 +287,21 @@ async fn routing_table_gossips_via_routing_key() {
 #[test]
 fn standalone_config_yields_no_cluster_state() {
     // This is a pure sync test — no async, no chitchat
-    let cfg = Config::from_iter(["ecs-sd", "--clusters", "prod"]).unwrap();
+    // Use an explicit flag to avoid cross-test environment races from other
+    // tests that mutate ECS_SD_CLUSTER_MODE.
+    let cfg = Config::from_iter([
+        "ecs-sd",
+        "--clusters",
+        "prod",
+        "--cluster-mode",
+        "standalone",
+    ])
+    .unwrap();
 
     assert_eq!(
         cfg.cluster_mode,
         ClusterMode::Standalone,
-        "Default cluster_mode should be Standalone"
+        "cluster_mode should be Standalone"
     );
 
     // The actual None check for AppState.cluster is validated in plan 07-03's

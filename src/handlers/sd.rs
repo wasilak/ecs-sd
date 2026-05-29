@@ -159,7 +159,10 @@ fn filter_targets(targets: Vec<Target>, params: &SdQueryParams) -> Vec<Target> {
         .filter(|target| {
             // Check cluster filter
             if let Some(ref cluster) = params.cluster {
-                let target_cluster = target.labels.get("__meta_ecs_cluster_name");
+                let target_cluster = target
+                    .labels
+                    .get("__meta_ecs_cluster_name")
+                    .or_else(|| target.labels.get("__meta_ecs_cluster"));
                 if target_cluster.map(|s| s.as_str()) != Some(cluster.as_str()) {
                     return false;
                 }
@@ -167,7 +170,10 @@ fn filter_targets(targets: Vec<Target>, params: &SdQueryParams) -> Vec<Target> {
 
             // Check service filter
             if let Some(ref service) = params.service {
-                let target_service = target.labels.get("__meta_ecs_service_name");
+                let target_service = target
+                    .labels
+                    .get("__meta_ecs_service_name")
+                    .or_else(|| target.labels.get("__meta_ecs_service"));
                 if target_service.map(|s| s.as_str()) != Some(service.as_str()) {
                     return false;
                 }
@@ -210,6 +216,8 @@ fn build_sd_response_with_cache_age(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::LabelBuilder;
+    use aws_sdk_ecs::types::{Cluster, Service};
     use std::collections::HashMap;
 
     fn create_test_target(cluster: &str, service: &str, family: &str) -> Target {
@@ -298,6 +306,87 @@ mod tests {
 
         let filtered = filter_targets(targets, &params);
         assert_eq!(filtered.len(), 2); // No filtering returns all
+    }
+
+    #[test]
+    fn test_filter_by_cluster_with_legacy_label_schema() {
+        let mut labels = HashMap::new();
+        labels.insert("__meta_ecs_cluster".to_string(), "prod".to_string());
+        labels.insert("__meta_ecs_service".to_string(), "api".to_string());
+        labels.insert("__meta_ecs_task_family".to_string(), "api-task".to_string());
+
+        let targets = vec![Target {
+            targets: vec!["10.0.0.1:8080".to_string()],
+            labels,
+        }];
+
+        let params = SdQueryParams {
+            cluster: Some("prod".to_string()),
+            service: None,
+            family: None,
+            level: Some(MetadataLevel::default()),
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_by_service_with_legacy_label_schema() {
+        let mut labels = HashMap::new();
+        labels.insert("__meta_ecs_cluster".to_string(), "prod".to_string());
+        labels.insert("__meta_ecs_service".to_string(), "api".to_string());
+        labels.insert("__meta_ecs_task_family".to_string(), "api-task".to_string());
+
+        let targets = vec![Target {
+            targets: vec!["10.0.0.1:8080".to_string()],
+            labels,
+        }];
+
+        let params = SdQueryParams {
+            cluster: None,
+            service: Some("api".to_string()),
+            family: None,
+            level: Some(MetadataLevel::default()),
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_targets_with_labels_from_label_builder() {
+        let service = Service::builder()
+            .service_name("api")
+            .service_arn("arn:aws:ecs:eu-west-1:123456789012:service/prod/api")
+            .status("ACTIVE")
+            .desired_count(2)
+            .running_count(2)
+            .build();
+        let cluster = Cluster::builder()
+            .cluster_name("prod")
+            .cluster_arn("arn:aws:ecs:eu-west-1:123456789012:cluster/prod")
+            .build();
+
+        let labels = LabelBuilder::new(MetadataLevel::Cluster)
+            .with_service(&service)
+            .with_cluster(&cluster)
+            .build();
+
+        let targets = vec![Target {
+            targets: vec!["10.0.0.1:8080".to_string()],
+            labels,
+        }];
+
+        let params = SdQueryParams {
+            cluster: Some("prod".to_string()),
+            service: Some("api".to_string()),
+            family: None,
+            level: Some(MetadataLevel::default()),
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 1);
     }
 
     #[test]
@@ -421,6 +510,35 @@ mod tests {
         let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
         let age = calculate_cache_age_seconds(last_refresh, now);
         assert_eq!(age, 0);
+    }
+
+    #[test]
+    fn api_docs_refresh_contract_matches_handler_response_shape() {
+        let docs = include_str!("../../docs/api.md");
+        assert!(
+            docs.contains("`POST /sd/refresh`"),
+            "API docs must include /sd/refresh section"
+        );
+        assert!(
+            docs.contains("\"status\": \"ok\"")
+                && docs.contains("\"targets_discovered\""),
+            "API docs must describe refresh JSON with status and targets_discovered"
+        );
+        assert!(
+            !docs.contains("Returns same format as `GET /sd`"),
+            "API docs must not claim /sd/refresh returns /sd target array"
+        );
+    }
+
+    #[test]
+    fn api_docs_sd_filtering_mentions_legacy_label_compatibility() {
+        let docs = include_str!("../../docs/api.md");
+        assert!(
+            docs.contains("legacy")
+                && docs.contains("__meta_ecs_cluster")
+                && docs.contains("__meta_ecs_service"),
+            "API docs should mention temporary legacy label compatibility"
+        );
     }
 
     // ---- proxy-mode sd target tests ----
