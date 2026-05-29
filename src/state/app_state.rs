@@ -39,6 +39,7 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub cluster: Option<Arc<crate::cluster::ClusterState>>,
     pub metrics: Arc<crate::metrics::MetricsState>,
+    pub last_manual_refresh_request: Arc<RwLock<SystemTime>>,
 }
 
 impl AppState {
@@ -67,6 +68,7 @@ impl AppState {
             http_client,
             cluster,
             metrics,
+            last_manual_refresh_request: Arc::new(RwLock::new(SystemTime::UNIX_EPOCH)),
         })
     }
 

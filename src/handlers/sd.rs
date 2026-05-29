@@ -1,6 +1,6 @@
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, HeaderValue},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -99,9 +99,67 @@ pub async fn sd_handler(
     build_sd_response_with_cache_age(filtered, cache_age_seconds, cache_state)
 }
 
+fn authorize_refresh(
+    expected_token: Option<&str>,
+    provided_token: Option<&str>,
+) -> Result<(), (StatusCode, serde_json::Value)> {
+    let Some(expected_token) = expected_token else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({
+                "error": "refresh endpoint disabled",
+                "reason": "refresh token not configured"
+            }),
+        ));
+    };
+
+    if provided_token != Some(expected_token) {
+        return Err((StatusCode::UNAUTHORIZED, json!({ "error": "unauthorized" })));
+    }
+
+    Ok(())
+}
+
+fn refresh_retry_after_seconds(last_request: SystemTime, now: SystemTime, min_interval: u64) -> Option<u64> {
+    let elapsed = now.duration_since(last_request).unwrap_or_default().as_secs();
+    if elapsed < min_interval {
+        Some(min_interval - elapsed)
+    } else {
+        None
+    }
+}
+
 pub async fn refresh_handler(
     State(state): State<AppState>,
-) -> Json<serde_json::Value> {
+    headers: HeaderMap,
+) -> Response {
+    let provided_token = headers
+        .get("X-Refresh-Token")
+        .and_then(|v| v.to_str().ok());
+
+    if let Err((status, body)) = authorize_refresh(state.config.refresh_token.as_deref(), provided_token) {
+        return (status, Json(body)).into_response();
+    }
+
+    let now = SystemTime::now();
+    {
+        let mut last_manual_refresh = state.last_manual_refresh_request.write().await;
+        if let Some(retry_after_seconds) =
+            refresh_retry_after_seconds(*last_manual_refresh, now, state.config.refresh_min_interval)
+        {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({
+                    "error": "rate limited",
+                    "retry_after_seconds": retry_after_seconds
+                })),
+            )
+                .into_response();
+        }
+
+        *last_manual_refresh = now;
+    }
+
     let clusters = state.config.clusters.clone();
 
     info!("Manual discovery refresh triggered");
@@ -119,6 +177,7 @@ pub async fn refresh_handler(
         "status": "ok",
         "targets_discovered": count
     }))
+    .into_response()
 }
 
 /// Filter target labels to only include those for the specified level
@@ -510,6 +569,56 @@ mod tests {
         let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
         let age = calculate_cache_age_seconds(last_refresh, now);
         assert_eq!(age, 0);
+    }
+
+    #[test]
+    fn authorize_refresh_returns_service_unavailable_when_token_missing() {
+        let result = authorize_refresh(None, Some("provided"));
+        assert!(result.is_err());
+        let (status, body) = result.err().unwrap();
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"], "refresh endpoint disabled");
+    }
+
+    #[test]
+    fn authorize_refresh_rejects_missing_or_invalid_token() {
+        let missing = authorize_refresh(Some("secret"), None);
+        assert!(missing.is_err());
+        assert_eq!(missing.err().unwrap().0, StatusCode::UNAUTHORIZED);
+
+        let wrong = authorize_refresh(Some("secret"), Some("wrong"));
+        assert!(wrong.is_err());
+        assert_eq!(wrong.err().unwrap().0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn authorize_refresh_accepts_matching_token() {
+        let result = authorize_refresh(Some("secret"), Some("secret"));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn refresh_retry_after_seconds_returns_none_when_interval_elapsed() {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let last = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(60);
+        let retry = refresh_retry_after_seconds(last, now, 30);
+        assert_eq!(retry, None);
+    }
+
+    #[test]
+    fn refresh_retry_after_seconds_returns_remaining_when_rate_limited() {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let last = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(95);
+        let retry = refresh_retry_after_seconds(last, now, 30);
+        assert_eq!(retry, Some(25));
+    }
+
+    #[test]
+    fn refresh_retry_after_seconds_handles_clock_skew() {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(50);
+        let last = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let retry = refresh_retry_after_seconds(last, now, 30);
+        assert_eq!(retry, Some(30));
     }
 
     #[test]

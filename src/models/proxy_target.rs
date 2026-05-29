@@ -16,6 +16,22 @@ pub fn route_id(task_arn: &str, container_name: &str, container_id: &str) -> Uui
     Uuid::new_v5(&Uuid::NAMESPACE_URL, input.as_bytes())
 }
 
+fn resolve_identity_source(target: &Target, address: &str) -> String {
+    if let Some(container_id) = target.labels.get("__meta_ecs_container_id") {
+        if !container_id.is_empty() {
+            return container_id.clone();
+        }
+    }
+
+    if let Some(task_definition) = target.labels.get("__meta_ecs_task_definition") {
+        if !task_definition.is_empty() {
+            return task_definition.clone();
+        }
+    }
+
+    address.to_string()
+}
+
 /// Build a routing table from a slice of AWS-level targets.
 /// Each target that has a non-empty address and ECS ARN/name/id labels gets one entry.
 pub fn build_routing_table(targets: &[Target]) -> HashMap<Uuid, ProxyTarget> {
@@ -35,12 +51,8 @@ pub fn build_routing_table(targets: &[Target]) -> HashMap<Uuid, ProxyTarget> {
             .get("__meta_ecs_container_name")
             .map(|s| s.as_str())
             .unwrap_or("");
-        let container_id = target
-            .labels
-            .get("__meta_ecs_container_id")
-            .map(|s| s.as_str())
-            .unwrap_or("");
-        let uuid = route_id(task_arn, container_name, container_id);
+        let identity_source = resolve_identity_source(target, &address);
+        let uuid = route_id(task_arn, container_name, &identity_source);
         table.insert(
             uuid,
             ProxyTarget {
@@ -137,5 +149,98 @@ mod tests {
         let targets = vec![make_target("", "arn:t", "web", "c1")];
         let table = build_routing_table(&targets);
         assert_eq!(table.len(), 0);
+    }
+
+    #[test]
+    fn build_routing_table_uses_task_definition_when_container_id_missing() {
+        let mut labels_a = HashMap::new();
+        labels_a.insert("__meta_ecs_task_arn".to_string(), "arn:t1".to_string());
+        labels_a.insert("__meta_ecs_container_name".to_string(), "web".to_string());
+        labels_a.insert(
+            "__meta_ecs_task_definition".to_string(),
+            "arn:task-def:1".to_string(),
+        );
+
+        let mut labels_b = HashMap::new();
+        labels_b.insert("__meta_ecs_task_arn".to_string(), "arn:t1".to_string());
+        labels_b.insert("__meta_ecs_container_name".to_string(), "web".to_string());
+        labels_b.insert(
+            "__meta_ecs_task_definition".to_string(),
+            "arn:task-def:2".to_string(),
+        );
+
+        let targets = vec![
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels_a,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels_b,
+            },
+        ];
+
+        let table = build_routing_table(&targets);
+        assert_eq!(table.len(), 2);
+    }
+
+    #[test]
+    fn build_routing_table_uses_address_when_container_id_and_task_definition_missing() {
+        let mut labels_a = HashMap::new();
+        labels_a.insert("__meta_ecs_task_arn".to_string(), "arn:t1".to_string());
+        labels_a.insert("__meta_ecs_container_name".to_string(), "web".to_string());
+
+        let mut labels_b = HashMap::new();
+        labels_b.insert("__meta_ecs_task_arn".to_string(), "arn:t1".to_string());
+        labels_b.insert("__meta_ecs_container_name".to_string(), "web".to_string());
+
+        let targets = vec![
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels_a,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels_b,
+            },
+        ];
+
+        let table = build_routing_table(&targets);
+        assert_eq!(table.len(), 2);
+    }
+
+    #[test]
+    fn build_routing_table_prefers_container_id_over_other_fallbacks() {
+        let mut labels_a = HashMap::new();
+        labels_a.insert("__meta_ecs_task_arn".to_string(), "arn:t1".to_string());
+        labels_a.insert("__meta_ecs_container_name".to_string(), "web".to_string());
+        labels_a.insert("__meta_ecs_container_id".to_string(), "cid-1".to_string());
+        labels_a.insert(
+            "__meta_ecs_task_definition".to_string(),
+            "arn:task-def:1".to_string(),
+        );
+
+        let mut labels_b = HashMap::new();
+        labels_b.insert("__meta_ecs_task_arn".to_string(), "arn:t1".to_string());
+        labels_b.insert("__meta_ecs_container_name".to_string(), "web".to_string());
+        labels_b.insert("__meta_ecs_container_id".to_string(), "cid-1".to_string());
+        labels_b.insert(
+            "__meta_ecs_task_definition".to_string(),
+            "arn:task-def:2".to_string(),
+        );
+
+        let targets = vec![
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels_a,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels_b,
+            },
+        ];
+
+        let table = build_routing_table(&targets);
+        assert_eq!(table.len(), 1);
     }
 }

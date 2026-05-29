@@ -111,6 +111,22 @@ pub struct Args {
         help = "Optional separate port for /metrics endpoint (defaults to --listen port)"
     )]
     pub metrics_port: Option<u16>,
+
+    #[arg(
+        long,
+        env = "ECS_SD_REFRESH_TOKEN",
+        help = "Shared token required by POST /sd/refresh via X-Refresh-Token header"
+    )]
+    pub refresh_token: Option<String>,
+
+    #[arg(
+        long,
+        env = "ECS_SD_REFRESH_MIN_INTERVAL",
+        default_value = "30s",
+        value_parser = humantime::parse_duration,
+        help = "Minimum interval between accepted POST /sd/refresh requests"
+    )]
+    pub refresh_min_interval: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +143,8 @@ pub struct Config {
     pub gossip_port: u16,
     pub node_id: String,
     pub metrics_port: Option<u16>,
+    pub refresh_token: Option<String>,
+    pub refresh_min_interval: u64,
 }
 
 impl Default for Config {
@@ -144,6 +162,8 @@ impl Default for Config {
             gossip_port: 8081,
             node_id: "localhost:8081".to_string(),
             metrics_port: None,
+            refresh_token: None,
+            refresh_min_interval: 30,
         }
     }
 }
@@ -199,6 +219,19 @@ impl Config {
             ));
         }
 
+        if args.refresh_min_interval <= Duration::ZERO {
+            return Err(ConfigError::InvalidValue(
+                "refresh min interval must be greater than 0".to_string(),
+            ));
+        }
+
+        let refresh_min_interval = args.refresh_min_interval.as_secs();
+        if refresh_min_interval == 0 {
+            return Err(ConfigError::InvalidValue(
+                "refresh min interval must be at least 1 second".to_string(),
+            ));
+        }
+
         let (public_address, public_address_scheme) =
             normalize_public_address(&args.mode, args.public_address.as_deref())?;
 
@@ -246,6 +279,8 @@ impl Config {
             gossip_port: args.gossip_port,
             node_id,
             metrics_port: args.metrics_port,
+            refresh_token: args.refresh_token,
+            refresh_min_interval,
         })
     }
 }
@@ -765,6 +800,76 @@ mod tests {
         unsafe {
             std::env::remove_var("ECS_SD_METRICS_PORT");
         }
+    }
+
+    #[test]
+    fn refresh_token_defaults_to_none() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.refresh_token, None);
+    }
+
+    #[test]
+    fn refresh_token_overridable_via_flag() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--refresh-token",
+            "secret-token",
+        ])
+        .expect("should succeed");
+        assert_eq!(config.refresh_token.as_deref(), Some("secret-token"));
+    }
+
+    #[test]
+    fn refresh_min_interval_defaults_to_30_seconds() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.refresh_min_interval, 30);
+    }
+
+    #[test]
+    fn refresh_min_interval_overridable_via_flag() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--refresh-min-interval",
+            "45s",
+        ])
+        .expect("should succeed");
+        assert_eq!(config.refresh_min_interval, 45);
+    }
+
+    #[test]
+    fn rejects_zero_refresh_min_interval() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let error = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--refresh-min-interval",
+            "0s",
+        ])
+        .expect_err("should reject zero refresh min interval");
+        assert!(
+            error
+                .to_string()
+                .contains("refresh min interval must be greater than 0")
+        );
     }
 
     #[test]
