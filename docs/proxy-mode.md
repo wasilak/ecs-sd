@@ -181,7 +181,7 @@ This happens automatically when `ECS_SD_MODE=proxy`.
 
 Returns targets with `__metrics_path__` pointing to proxy routes.
 
-**Query Parameters:** Same as discovery mode (`level`, `cluster`, `service`, `family`).
+**Query Parameters:** Same as discovery mode (`level`, `cluster`, `service`, `family`, repeatable `tag_{name}`, `filter_mode`).
 
 **Response:**
 ```json

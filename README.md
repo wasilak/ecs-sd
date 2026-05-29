@@ -146,6 +146,11 @@ See [Configuration Reference](docs/configuration.md) for all options.
 | `GET /proxy/:id/metrics` | Proxy to target (proxy mode) |
 | `GET /metrics` | Prometheus metrics |
 
+`GET /sd` supports query filters:
+- `cluster`, `service`, `family`
+- repeatable `tag_{name}` filters based on `__meta_ecs_tag_*` label suffixes (for example `tag_task_env=prod`)
+- `filter_mode=and|or` to combine all provided filters (default: `and`)
+
 See [API Reference](docs/api.md) for details.
 
 ## AWS IAM
