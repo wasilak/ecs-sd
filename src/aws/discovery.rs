@@ -17,6 +17,64 @@ fn extract_fargate_private_ip(task: &aws_sdk_ecs::types::Task) -> Option<&str> {
         .and_then(|d| d.value())
 }
 
+fn task_definition_from_cache(
+    cache: &HashMap<String, aws_sdk_ecs::types::TaskDefinition>,
+    task_definition_arn: &str,
+) -> Option<aws_sdk_ecs::types::TaskDefinition> {
+    cache.get(task_definition_arn).cloned()
+}
+
+fn ec2_instance_from_cache(
+    container_instance_to_ec2_id: &HashMap<String, String>,
+    ec2_cache: &HashMap<String, Ec2InstanceInfo>,
+    container_instance_arn: &str,
+) -> Option<Ec2InstanceInfo> {
+    let ec2_instance_id = container_instance_to_ec2_id.get(container_instance_arn)?;
+    let mut info = ec2_cache.get(ec2_instance_id)?.clone();
+    info.container_instance_arn = container_instance_arn.to_string();
+    info.ec2_instance_id = ec2_instance_id.clone();
+    Some(info)
+}
+
+fn missing_container_instance_arns(
+    container_instance_to_ec2_id: &HashMap<String, String>,
+    container_instance_arns: &[String],
+) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut missing = Vec::new();
+    for arn in container_instance_arns {
+        if container_instance_to_ec2_id.contains_key(arn) || !seen.insert(arn.clone()) {
+            continue;
+        }
+        missing.push(arn.clone());
+    }
+    missing
+}
+
+fn missing_ec2_instance_ids(
+    container_instance_to_ec2_id: &HashMap<String, String>,
+    ec2_cache: &HashMap<String, Ec2InstanceInfo>,
+    container_instance_arns: &[String],
+) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut missing = Vec::new();
+    for arn in container_instance_arns {
+        let Some(ec2_instance_id) = container_instance_to_ec2_id.get(arn) else {
+            continue;
+        };
+        if ec2_cache.contains_key(ec2_instance_id) || !seen.insert(ec2_instance_id.clone()) {
+            continue;
+        }
+        missing.push(ec2_instance_id.clone());
+    }
+    missing
+}
+
+fn apply_page(items: &mut Vec<String>, page_items: &[String], next_token: Option<&str>) -> Option<String> {
+    items.extend(page_items.iter().cloned());
+    next_token.map(|s| s.to_string())
+}
+
 #[derive(Clone)]
 pub struct DiscoveryService {
     ecs_client: aws_sdk_ecs::Client,
@@ -25,6 +83,7 @@ pub struct DiscoveryService {
     region: String,
 }
 
+#[derive(Clone)]
 struct Ec2InstanceInfo {
     private_ip: String,
     public_ip: Option<String>,
@@ -93,6 +152,10 @@ impl DiscoveryService {
         mode: Mode,
     ) -> Result<Vec<Target>, DiscoveryError> {
         let mut targets = Vec::new();
+        let mut task_definition_cache: HashMap<String, aws_sdk_ecs::types::TaskDefinition> =
+            HashMap::new();
+        let mut container_instance_to_ec2_id_cache: HashMap<String, String> = HashMap::new();
+        let mut ec2_instance_cache: HashMap<String, Ec2InstanceInfo> = HashMap::new();
 
         let clusters = self
             .ecs_client
@@ -146,6 +209,34 @@ impl DiscoveryService {
                         .await
                         .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
 
+                    let container_instance_arns: Vec<String> = tasks
+                        .tasks()
+                        .iter()
+                        .filter(|task| task.launch_type() == Some(&LaunchType::Ec2))
+                        .filter(|task| {
+                            !matches!(task.last_status(), Some("STOPPED") | Some("STOPPING"))
+                        })
+                        .filter_map(|task| task.container_instance_arn().map(|s| s.to_string()))
+                        .collect();
+
+                    self
+                        .populate_container_instance_to_ec2_id_cache(
+                            cluster_arn,
+                            &container_instance_arns,
+                            &mut container_instance_to_ec2_id_cache,
+                        )
+                        .await?;
+
+                    let missing_ids = missing_ec2_instance_ids(
+                        &container_instance_to_ec2_id_cache,
+                        &ec2_instance_cache,
+                        &container_instance_arns,
+                    );
+
+                    self
+                        .populate_ec2_instance_cache(&missing_ids, &mut ec2_instance_cache)
+                        .await?;
+
                     for task in tasks.tasks() {
                         if task.launch_type() != Some(&LaunchType::Ec2) {
                             if mode == Mode::Proxy && task.launch_type() == Some(&LaunchType::Fargate) {
@@ -161,20 +252,19 @@ impl DiscoveryService {
                                             continue;
                                         }
                                     };
-                                    let task_def_resp = match self.ecs_client
-                                        .describe_task_definition()
-                                        .task_definition(task_def_arn)
-                                        .send()
+                                    let task_def = match self
+                                        .get_task_definition_cached(
+                                            &mut task_definition_cache,
+                                            task_def_arn,
+                                        )
                                         .await
                                     {
-                                        Ok(r) => r,
+                                        Ok(Some(td)) => td,
+                                        Ok(None) => continue,
                                         Err(e) => {
                                             warn!("Failed to describe Fargate task def: {}", e);
                                             continue;
                                         }
-                                    };
-                                    let Some(task_def) = task_def_resp.task_definition() else {
-                                        continue;
                                     };
 
                                     for container_def in task_def.container_definitions() {
@@ -205,7 +295,7 @@ impl DiscoveryService {
                                         let labels = LabelBuilder::new(MetadataLevel::Aws)
                                             .with_container(container_def, port)
                                             .with_network(private_ip, &network_mode, None)
-                                            .with_task(task, task_def)
+                                            .with_task(task, &task_def)
                                             .with_service(service)
                                             .with_cluster(cluster)
                                             .with_aws(&self.region, &self.account_id, None)
@@ -233,15 +323,10 @@ impl DiscoveryService {
                             .task_definition_arn()
                             .ok_or(DiscoveryError::NoContainerInstance)?;
 
-                        let task_def_resp = self
-                            .ecs_client
-                            .describe_task_definition()
-                            .task_definition(task_def_arn)
-                            .send()
-                            .await
-                            .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
-
-                        let Some(task_def) = task_def_resp.task_definition() else {
+                        let Some(task_def) = self
+                            .get_task_definition_cached(&mut task_definition_cache, task_def_arn)
+                            .await?
+                        else {
                             continue;
                         };
 
@@ -285,7 +370,12 @@ impl DiscoveryService {
                             };
 
                             match self
-                                .resolve_ec2_instance(cluster_arn, container_instance_arn)
+                                .resolve_ec2_instance_cached(
+                                    cluster_arn,
+                                    container_instance_arn,
+                                    &mut container_instance_to_ec2_id_cache,
+                                    &mut ec2_instance_cache,
+                                )
                                 .await
                             {
                                 Ok(ec2) => {
@@ -307,7 +397,7 @@ impl DiscoveryService {
                                     let labels = LabelBuilder::new(MetadataLevel::Aws)
                                         .with_container(container_def, port)
                                         .with_network(target_ip, &network_mode, ec2.subnet_id.as_deref())
-                                        .with_task(task, task_def)
+                                        .with_task(task, &task_def)
                                         .with_service(service)
                                         .with_cluster(cluster)
                                         .with_aws(
@@ -341,6 +431,54 @@ impl DiscoveryService {
         Ok(targets)
     }
 
+    async fn get_task_definition_cached(
+        &self,
+        cache: &mut HashMap<String, aws_sdk_ecs::types::TaskDefinition>,
+        task_definition_arn: &str,
+    ) -> Result<Option<aws_sdk_ecs::types::TaskDefinition>, DiscoveryError> {
+        if let Some(task_definition) = task_definition_from_cache(cache, task_definition_arn) {
+            return Ok(Some(task_definition));
+        }
+
+        let task_def_resp = self
+            .ecs_client
+            .describe_task_definition()
+            .task_definition(task_definition_arn)
+            .send()
+            .await
+            .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
+
+        let Some(task_definition) = task_def_resp.task_definition() else {
+            return Ok(None);
+        };
+
+        let task_definition = task_definition.clone();
+        cache.insert(task_definition_arn.to_string(), task_definition.clone());
+        Ok(Some(task_definition))
+    }
+
+    async fn resolve_ec2_instance_cached(
+        &self,
+        cluster_arn: &str,
+        container_instance_arn: &str,
+        container_instance_to_ec2_id_cache: &mut HashMap<String, String>,
+        ec2_instance_cache: &mut HashMap<String, Ec2InstanceInfo>,
+    ) -> Result<Ec2InstanceInfo, DiscoveryError> {
+        if let Some(ec2) = ec2_instance_from_cache(
+            container_instance_to_ec2_id_cache,
+            ec2_instance_cache,
+            container_instance_arn,
+        ) {
+            return Ok(ec2);
+        }
+
+        let ec2 = self.resolve_ec2_instance(cluster_arn, container_instance_arn).await?;
+        container_instance_to_ec2_id_cache
+            .insert(container_instance_arn.to_string(), ec2.ec2_instance_id.clone());
+        ec2_instance_cache.insert(ec2.ec2_instance_id.clone(), ec2.clone());
+        Ok(ec2)
+    }
+
     async fn list_all_services(&self, cluster_arn: &str) -> Result<Vec<String>, DiscoveryError> {
         let mut services = Vec::new();
         let mut next_token: Option<String> = None;
@@ -360,9 +498,7 @@ impl DiscoveryService {
                 .send()
                 .await
                 .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
-            services.extend(resp.service_arns().to_vec());
-
-            next_token = resp.next_token().map(|s| s.to_string());
+            next_token = apply_page(&mut services, resp.service_arns(), resp.next_token());
             if next_token.is_none() {
                 break;
             }
@@ -395,15 +531,102 @@ impl DiscoveryService {
                 .send()
                 .await
                 .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
-            tasks.extend(resp.task_arns().to_vec());
-
-            next_token = resp.next_token().map(|s| s.to_string());
+            next_token = apply_page(&mut tasks, resp.task_arns(), resp.next_token());
             if next_token.is_none() {
                 break;
             }
         }
 
         Ok(tasks)
+    }
+
+    async fn populate_container_instance_to_ec2_id_cache(
+        &self,
+        cluster_arn: &str,
+        container_instance_arns: &[String],
+        cache: &mut HashMap<String, String>,
+    ) -> Result<(), DiscoveryError> {
+        let missing = missing_container_instance_arns(cache, container_instance_arns);
+        for chunk in missing.chunks(100) {
+            let container_instances = self
+                .ecs_client
+                .describe_container_instances()
+                .cluster(cluster_arn)
+                .set_container_instances(Some(chunk.to_vec()))
+                .send()
+                .await
+                .map_err(|e| DiscoveryError::EcsError(e.to_string()))?;
+
+            for ci in container_instances.container_instances() {
+                if let (Some(container_instance_arn), Some(ec2_instance_id)) =
+                    (ci.container_instance_arn(), ci.ec2_instance_id())
+                {
+                    cache.insert(container_instance_arn.to_string(), ec2_instance_id.to_string());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn populate_ec2_instance_cache(
+        &self,
+        ec2_instance_ids: &[String],
+        cache: &mut HashMap<String, Ec2InstanceInfo>,
+    ) -> Result<(), DiscoveryError> {
+        for chunk in ec2_instance_ids.chunks(100) {
+            let instances = self
+                .ec2_client
+                .describe_instances()
+                .set_instance_ids(Some(chunk.to_vec()))
+                .send()
+                .await
+                .map_err(|e| DiscoveryError::Ec2Error(e.to_string()))?;
+
+            for reservation in instances.reservations() {
+                for instance in reservation.instances() {
+                    let Some(ec2_instance_id) = instance.instance_id() else {
+                        continue;
+                    };
+                    let Some(private_ip) = instance.private_ip_address() else {
+                        continue;
+                    };
+
+                    let public_ip = instance.public_ip_address().map(|s| s.to_string());
+                    let availability_zone = instance
+                        .placement()
+                        .and_then(|p| p.availability_zone())
+                        .map(|s| s.to_string());
+                    let subnet_id = instance.subnet_id().map(|s| s.to_string());
+                    let ec2_instance_type = instance
+                        .instance_type()
+                        .map(|t| t.as_str().to_string());
+                    let ec2_tags: HashMap<String, String> = instance
+                        .tags()
+                        .iter()
+                        .filter_map(|t| {
+                            t.key()
+                                .zip(t.value())
+                                .map(|(k, v)| (k.to_string(), v.to_string()))
+                        })
+                        .collect();
+
+                    cache.insert(
+                        ec2_instance_id.to_string(),
+                        Ec2InstanceInfo {
+                            private_ip: private_ip.to_string(),
+                            public_ip,
+                            availability_zone,
+                            subnet_id,
+                            container_instance_arn: String::new(),
+                            ec2_instance_id: ec2_instance_id.to_string(),
+                            ec2_instance_type,
+                            ec2_tags,
+                        },
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn resolve_ec2_instance(
@@ -486,6 +709,191 @@ impl DiscoveryService {
 mod tests {
     use super::*;
     use aws_sdk_ecs::types::{Attachment, KeyValuePair};
+
+    #[test]
+    fn task_definition_from_cache_returns_none_on_miss() {
+        let cache: HashMap<String, aws_sdk_ecs::types::TaskDefinition> = HashMap::new();
+        let result = task_definition_from_cache(&cache, "arn:missing");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn task_definition_from_cache_returns_cloned_value_on_hit() {
+        let mut cache: HashMap<String, aws_sdk_ecs::types::TaskDefinition> = HashMap::new();
+        let task_def = aws_sdk_ecs::types::TaskDefinition::builder()
+            .task_definition_arn("arn:task-def:1")
+            .family("svc")
+            .build();
+        cache.insert("arn:task-def:1".to_string(), task_def);
+
+        let result = task_definition_from_cache(&cache, "arn:task-def:1");
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap().task_definition_arn(),
+            Some("arn:task-def:1")
+        );
+    }
+
+    #[test]
+    fn missing_container_instance_arns_returns_unique_uncached_values() {
+        let cache = HashMap::from([("ci:1".to_string(), "i-1".to_string())]);
+        let input = vec![
+            "ci:1".to_string(),
+            "ci:2".to_string(),
+            "ci:2".to_string(),
+            "ci:3".to_string(),
+        ];
+        let missing = missing_container_instance_arns(&cache, &input);
+        assert_eq!(missing, vec!["ci:2".to_string(), "ci:3".to_string()]);
+    }
+
+    #[test]
+    fn missing_ec2_instance_ids_returns_unique_uncached_values() {
+        let container_to_ec2 = HashMap::from([
+            ("ci:1".to_string(), "i-1".to_string()),
+            ("ci:2".to_string(), "i-2".to_string()),
+            ("ci:3".to_string(), "i-2".to_string()),
+            ("ci:4".to_string(), "i-4".to_string()),
+        ]);
+        let mut ec2_cache = HashMap::new();
+        ec2_cache.insert(
+            "i-1".to_string(),
+            Ec2InstanceInfo {
+                private_ip: "10.0.0.1".to_string(),
+                public_ip: None,
+                availability_zone: None,
+                subnet_id: None,
+                container_instance_arn: "ci:1".to_string(),
+                ec2_instance_id: "i-1".to_string(),
+                ec2_instance_type: None,
+                ec2_tags: HashMap::new(),
+            },
+        );
+
+        let input = vec![
+            "ci:1".to_string(),
+            "ci:2".to_string(),
+            "ci:3".to_string(),
+            "ci:4".to_string(),
+            "ci:unknown".to_string(),
+        ];
+        let missing = missing_ec2_instance_ids(&container_to_ec2, &ec2_cache, &input);
+        assert_eq!(missing, vec!["i-2".to_string(), "i-4".to_string()]);
+    }
+
+    #[test]
+    fn ec2_instance_from_cache_rehydrates_container_instance_context() {
+        let container_to_ec2 = HashMap::from([("ci:1".to_string(), "i-1".to_string())]);
+        let mut ec2_cache = HashMap::new();
+        ec2_cache.insert(
+            "i-1".to_string(),
+            Ec2InstanceInfo {
+                private_ip: "10.0.0.1".to_string(),
+                public_ip: Some("1.2.3.4".to_string()),
+                availability_zone: Some("eu-west-1a".to_string()),
+                subnet_id: Some("subnet-1".to_string()),
+                container_instance_arn: String::new(),
+                ec2_instance_id: "i-1".to_string(),
+                ec2_instance_type: Some("t3.medium".to_string()),
+                ec2_tags: HashMap::from([("Name".to_string(), "node-1".to_string())]),
+            },
+        );
+
+        let result = ec2_instance_from_cache(&container_to_ec2, &ec2_cache, "ci:1")
+            .expect("cache hit expected");
+        assert_eq!(result.container_instance_arn, "ci:1");
+        assert_eq!(result.ec2_instance_id, "i-1");
+        assert_eq!(result.private_ip, "10.0.0.1");
+    }
+
+    #[test]
+    fn apply_page_accumulates_items_and_token_across_pages() {
+        let mut items = Vec::new();
+
+        let token = apply_page(
+            &mut items,
+            &["svc:1".to_string(), "svc:2".to_string()],
+            Some("t1"),
+        );
+        assert_eq!(items, vec!["svc:1".to_string(), "svc:2".to_string()]);
+        assert_eq!(token.as_deref(), Some("t1"));
+
+        let token = apply_page(&mut items, &["svc:3".to_string()], None);
+        assert_eq!(items, vec!["svc:1", "svc:2", "svc:3"]);
+        assert_eq!(token, None);
+    }
+
+    #[test]
+    fn missing_container_instance_arns_scales_with_large_paginated_input() {
+        let cache: HashMap<String, String> = (0..50)
+            .map(|i| (format!("ci:{}", i), format!("i-{}", i)))
+            .collect();
+
+        let mut input = Vec::new();
+        for page in 0..4 {
+            for i in 0..80 {
+                let value = format!("ci:{}", page * 80 + i);
+                input.push(value.clone());
+                if i % 3 == 0 {
+                    input.push(value);
+                }
+            }
+        }
+
+        let missing = missing_container_instance_arns(&cache, &input);
+        assert_eq!(missing.len(), 270);
+        assert_eq!(missing.first().map(|s| s.as_str()), Some("ci:50"));
+        assert_eq!(missing.last().map(|s| s.as_str()), Some("ci:319"));
+    }
+
+    #[test]
+    fn missing_ec2_instance_ids_scales_and_preserves_first_seen_order() {
+        let container_to_ec2 = HashMap::from([
+            ("ci:1".to_string(), "i-1".to_string()),
+            ("ci:2".to_string(), "i-2".to_string()),
+            ("ci:3".to_string(), "i-3".to_string()),
+            ("ci:4".to_string(), "i-2".to_string()),
+            ("ci:5".to_string(), "i-4".to_string()),
+        ]);
+
+        let mut ec2_cache = HashMap::new();
+        ec2_cache.insert(
+            "i-1".to_string(),
+            Ec2InstanceInfo {
+                private_ip: "10.0.0.1".to_string(),
+                public_ip: None,
+                availability_zone: None,
+                subnet_id: None,
+                container_instance_arn: "ci:1".to_string(),
+                ec2_instance_id: "i-1".to_string(),
+                ec2_instance_type: None,
+                ec2_tags: HashMap::new(),
+            },
+        );
+
+        let input = vec![
+            "ci:1".to_string(),
+            "ci:2".to_string(),
+            "ci:3".to_string(),
+            "ci:4".to_string(),
+            "ci:5".to_string(),
+            "ci:unknown".to_string(),
+            "ci:2".to_string(),
+            "ci:5".to_string(),
+        ];
+
+        let missing = missing_ec2_instance_ids(&container_to_ec2, &ec2_cache, &input);
+        assert_eq!(missing, vec!["i-2", "i-3", "i-4"]);
+    }
+
+    #[test]
+    fn ec2_instance_from_cache_returns_none_when_container_mapping_missing() {
+        let container_to_ec2: HashMap<String, String> = HashMap::new();
+        let ec2_cache: HashMap<String, Ec2InstanceInfo> = HashMap::new();
+
+        let result = ec2_instance_from_cache(&container_to_ec2, &ec2_cache, "ci:missing");
+        assert!(result.is_none());
+    }
 
     #[test]
     fn extract_fargate_ip_from_valid_eni() {
