@@ -10,7 +10,7 @@ pub mod metrics;
 
 use axum::Router;
 use axum::routing::get;
-use rand::Rng;
+use rand::RngExt as _;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ClusterMode::Standalone => None,
         ClusterMode::Cluster => {
             let chitchat_id = ChitchatId {
-                node_id: config.node_id.clone(),
+                node_id: config.node_id.clone().into(),
                 generation_id: rand::random::<u64>(),
                 gossip_advertise_addr: format!("0.0.0.0:{}", config.gossip_port).parse()
                     .expect("gossip_port is validated at config parse time"),
@@ -213,7 +213,7 @@ fn spawn_background_refresh(
                         }
                     }
 
-                    let jitter_factor = rand::thread_rng().gen_range(-0.10..=0.10);
+                    let jitter_factor = rand::rng().random_range(-0.10..=0.10);
                     let jittered_delay = calculate_jittered_delay(base_interval, jitter_factor);
                     tokio::time::sleep(jittered_delay).await;
 

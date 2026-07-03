@@ -24,7 +24,7 @@ impl ClusterState {
     pub async fn is_leader(&self) -> bool {
         let chitchat = self.handle.chitchat();
         let cc = chitchat.lock().await;
-        let min_live_id = cc.live_nodes().map(|id| id.node_id.as_str()).min();
+        let min_live_id = cc.live_nodes().map(|id| &*id.node_id).min();
         min_live_id == Some(self.self_id.as_str())
     }
 

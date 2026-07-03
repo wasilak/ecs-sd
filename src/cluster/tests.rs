@@ -35,7 +35,7 @@ async fn make_node_with_detector(
     failure_detector_config: FailureDetectorConfig,
 ) -> ClusterState {
     let chitchat_id = ChitchatId {
-        node_id: node_id.to_string(),
+        node_id: node_id.into(),
         generation_id: 1,
         gossip_advertise_addr: addr.parse().unwrap(),
     };
@@ -261,7 +261,7 @@ async fn routing_table_gossips_via_routing_key() {
     // Find node-a's ChitchatId in live nodes
     let node_a_id = cc
         .live_nodes()
-        .find(|id| id.node_id == "node-a")
+        .find(|id| &*id.node_id == "node-a")
         .expect("node-a should be in live nodes");
 
     // Read the routing key from node-a's state

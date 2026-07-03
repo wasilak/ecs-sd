@@ -33,11 +33,11 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 humantime = "2"
 prometheus = "0.14"
-rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = [
-  "rustls-tls",
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls",
   "stream",
 ] }
 uuid = { version = "1", features = ["v5"] }
-chitchat = "0.10.1"
+chitchat = "0.11.1"
 tokio-stream = { version = "0.1", features = ["sync"] }
