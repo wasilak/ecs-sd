@@ -28,9 +28,15 @@ impl Default for FilterMode {
 /// Query parameters for the /sd endpoint
 #[derive(Debug, Deserialize)]
 pub struct SdQueryParams {
-    pub cluster: Option<String>,
-    pub service: Option<String>,
-    pub family: Option<String>,
+    /// Filter by cluster name(s); repeatable (?cluster=a&cluster=b).
+    #[serde(skip)]
+    pub clusters: Vec<String>,
+    /// Filter by ECS service name(s); repeatable.
+    #[serde(skip)]
+    pub services: Vec<String>,
+    /// Filter by task definition family/families; repeatable.
+    #[serde(skip)]
+    pub families: Vec<String>,
     /// Metadata level override; falls back to configured default when omitted.
     pub level: Option<MetadataLevel>,
     #[serde(default)]
@@ -42,9 +48,9 @@ pub struct SdQueryParams {
 impl Default for SdQueryParams {
     fn default() -> Self {
         Self {
-            cluster: None,
-            service: None,
-            family: None,
+            clusters: Vec::new(),
+            services: Vec::new(),
+            families: Vec::new(),
             level: None,
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),

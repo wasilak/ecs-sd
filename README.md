@@ -146,12 +146,106 @@ See [Configuration Reference](docs/configuration.md) for all options.
 | `GET /proxy/:id/metrics` | Proxy to target (proxy mode) |
 | `GET /metrics` | Prometheus metrics |
 
-`GET /sd` supports query filters:
-- `cluster`, `service`, `family`
-- repeatable `tag_{name}` filters based on `__meta_ecs_tag_*` label suffixes (for example `tag_task_env=prod`)
-- `filter_mode=and|or` to combine all provided filters (default: `and`)
+`GET /sd` supports flexible filtering. See the [Filtering section](#filtering) below and the full [API Reference](docs/api.md).
 
-See [API Reference](docs/api.md) for details.
+## Filtering
+
+The `/sd` endpoint accepts query parameters to narrow down which targets Prometheus receives. All filters are optional — omitting them returns everything.
+
+### Basic filters
+
+| Parameter | Matches on | Repeatable? |
+|-----------|-----------|-------------|
+| `cluster` | ECS cluster name | Yes |
+| `service` | ECS service name | Yes |
+| `family` | Task definition family | Yes |
+| `tag_{name}` | ECS tag (e.g. `tag_env=prod`) | Yes |
+| `filter_mode` | How fields combine: `and` (default) or `or` | No |
+| `level` | Metadata level to include | No |
+
+### Single values — the simple case
+
+```bash
+# Only targets in the "production" cluster
+curl "http://ecs-sd:8080/sd?cluster=production"
+
+# Only the "api-gateway" service
+curl "http://ecs-sd:8080/sd?service=api-gateway"
+
+# Narrow down further: production cluster AND api-gateway service
+curl "http://ecs-sd:8080/sd?cluster=production&service=api-gateway"
+```
+
+### Multiple values for the same filter — OR within a field
+
+Repeat a parameter to match any of the given values. Useful when you want targets from several clusters, services, or task families at once.
+
+```bash
+# Targets from production OR staging
+curl "http://ecs-sd:8080/sd?cluster=production&cluster=staging"
+
+# Two specific task families
+curl "http://ecs-sd:8080/sd?family=api-task&family=worker-task"
+
+# Services from two clusters — cluster filter is OR, combined with service filter by AND
+curl "http://ecs-sd:8080/sd?cluster=production&cluster=staging&service=api-gateway"
+```
+
+### Tag filters — AND across different tags, OR within the same tag
+
+ECS tags attached to your tasks or services can be used as filters. Use `tag_{tag-name}={value}` syntax.
+
+**Different tag names → AND** (target must satisfy all of them):
+
+```bash
+# Must have env=production AND team=observability
+curl "http://ecs-sd:8080/sd?tag_env=production&tag_team=observability"
+```
+
+**Same tag name repeated → OR** (target matches if it has any of the values):
+
+```bash
+# env=production OR env=staging
+curl "http://ecs-sd:8080/sd?tag_env=production&tag_env=staging"
+```
+
+**Both combined** — group by tag name, then AND the groups:
+
+```bash
+# (env=production OR env=staging) AND team=observability
+curl "http://ecs-sd:8080/sd?tag_env=production&tag_env=staging&tag_team=observability"
+```
+
+This maps naturally to how you'd think about it: "give me all observability-team services, from both prod and staging."
+
+### Combining field-level filters with `filter_mode`
+
+By default, the different filter fields (cluster, service, family, tag groups) are combined with **AND** — a target must satisfy every field you specify. Switch to **OR** to get targets that match any one of them.
+
+```bash
+# Targets in the "production" cluster AND tagged with team=platform
+curl "http://ecs-sd:8080/sd?cluster=production&tag_team=platform"
+
+# Targets in "production" cluster OR tagged with team=platform
+curl "http://ecs-sd:8080/sd?cluster=production&tag_team=platform&filter_mode=or"
+```
+
+### Metadata level
+
+Control how much metadata is included in each target's labels. Only one level can be specified.
+
+```bash
+# Include all AWS-level metadata
+curl "http://ecs-sd:8080/sd?level=aws"
+
+# Only cluster-level metadata, filtered to a specific cluster
+curl "http://ecs-sd:8080/sd?level=cluster&cluster=production"
+```
+
+Available levels (each includes everything from the levels above it):
+`container` → `task` → `service` → `cluster` → `aws`
+
+---
 
 ## AWS IAM
 

@@ -56,12 +56,12 @@ During migration, legacy labels (`__meta_ecs_cluster`, `__meta_ecs_service`) are
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `level` | string | — | Override metadata level (`container`, `task`, `service`, `cluster`, `aws`) |
-| `cluster` | string | — | Filter by cluster name |
-| `service` | string | — | Filter by ECS service name |
-| `family` | string | — | Filter by task definition family |
-| `tag_{name}` | string | — | Filter by ECS tag label suffix from `__meta_ecs_tag_*` (e.g. `tag_task_env=prod`) |
-| `filter_mode` | string | `and` | How to combine all provided filters: `and` or `or` |
+| `level` | string | — | Override metadata level (`container`, `task`, `service`, `cluster`, `aws`). Only one value accepted. |
+| `cluster` | string (repeatable) | — | Filter by cluster name. Repeat to match any of multiple clusters. |
+| `service` | string (repeatable) | — | Filter by ECS service name. Repeat to match any of multiple services. |
+| `family` | string (repeatable) | — | Filter by task definition family. Repeat to match any of multiple families. |
+| `tag_{name}` | string (repeatable) | — | Filter by ECS tag. Repeat the same key for OR within a tag, use different keys for AND across tags (e.g. `tag_env=prod&tag_env=staging&tag_team=obs`). |
+| `filter_mode` | string | `and` | How to combine the filter fields (`cluster`, `service`, `family`, `tag_*`) with each other: `and` or `or`. |
 
 ### Response Format
 
@@ -156,12 +156,22 @@ curl "http://ecs-sd:8080/sd?service=api-gateway"
 curl "http://ecs-sd:8080/sd?level=service&cluster=production"
 ```
 
-**Tag filters (same key can be repeated):**
+**Multiple families (OR within field):**
 ```bash
-curl "http://ecs-sd:8080/sd?tag_task_env=prod&tag_task_team=obs"
+curl "http://ecs-sd:8080/sd?family=api-task&family=worker-task"
 ```
 
-**OR mode across filters:**
+**Multiple clusters:**
+```bash
+curl "http://ecs-sd:8080/sd?cluster=production&cluster=staging"
+```
+
+**Tag filters (same key repeated = OR; different keys = AND):**
+```bash
+curl "http://ecs-sd:8080/sd?tag_env=prod&tag_env=staging&tag_team=obs"
+```
+
+**OR mode across filter fields:**
 ```bash
 curl "http://ecs-sd:8080/sd?cluster=production&tag_task_team=platform&filter_mode=or"
 ```

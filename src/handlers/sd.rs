@@ -40,7 +40,11 @@ pub async fn sd_handler(
     Query(mut params): Query<SdQueryParams>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    params.tag_filters = extract_tag_filters(raw_query.as_deref());
+    let raw_pairs = parse_raw_query(raw_query.as_deref());
+    params.clusters = extract_values(&raw_pairs, "cluster");
+    params.services = extract_values(&raw_pairs, "service");
+    params.families = extract_values(&raw_pairs, "family");
+    params.tag_filters = extract_tag_filters_from_pairs(&raw_pairs);
 
     let level = params.level.unwrap_or(state.config.metadata_level);
 
@@ -224,31 +228,57 @@ fn filter_targets(targets: Vec<Target>, params: &SdQueryParams) -> Vec<Target> {
         .filter(|target| {
             let mut checks = Vec::new();
 
-            if let Some(ref cluster) = params.cluster {
+            if !params.clusters.is_empty() {
                 let target_cluster = target
                     .labels
                     .get("__meta_ecs_cluster_name")
                     .or_else(|| target.labels.get("__meta_ecs_cluster"));
-                checks.push(target_cluster.map(|s| s.as_str()) == Some(cluster.as_str()));
+                checks.push(
+                    target_cluster
+                        .map(|s| params.clusters.contains(s))
+                        .unwrap_or(false),
+                );
             }
 
-            if let Some(ref service) = params.service {
+            if !params.services.is_empty() {
                 let target_service = target
                     .labels
                     .get("__meta_ecs_service_name")
                     .or_else(|| target.labels.get("__meta_ecs_service"));
-                checks.push(target_service.map(|s| s.as_str()) == Some(service.as_str()));
+                checks.push(
+                    target_service
+                        .map(|s| params.services.contains(s))
+                        .unwrap_or(false),
+                );
             }
 
-            if let Some(ref family) = params.family {
+            if !params.families.is_empty() {
                 let target_family = target.labels.get("__meta_ecs_task_family");
-                checks.push(target_family.map(|s| s.as_str()) == Some(family.as_str()));
+                checks.push(
+                    target_family
+                        .map(|s| params.families.contains(s))
+                        .unwrap_or(false),
+                );
             }
 
+            // Group tag filters by key: same key = OR (any value matches),
+            // different keys each add an AND check.
+            let mut tag_groups: Vec<(&str, Vec<&str>)> = Vec::new();
             for (tag_name, tag_value) in &params.tag_filters {
+                if let Some(group) = tag_groups.iter_mut().find(|(k, _)| *k == tag_name.as_str()) {
+                    group.1.push(tag_value.as_str());
+                } else {
+                    tag_groups.push((tag_name.as_str(), vec![tag_value.as_str()]));
+                }
+            }
+            for (tag_name, tag_values) in &tag_groups {
                 let label_key = format!("__meta_ecs_tag_{}", tag_name);
                 let target_tag = target.labels.get(&label_key);
-                checks.push(target_tag.map(|s| s.as_str()) == Some(tag_value.as_str()));
+                checks.push(
+                    target_tag
+                        .map(|s| tag_values.contains(&s.as_str()))
+                        .unwrap_or(false),
+                );
             }
 
             if checks.is_empty() {
@@ -263,17 +293,25 @@ fn filter_targets(targets: Vec<Target>, params: &SdQueryParams) -> Vec<Target> {
         .collect()
 }
 
-fn extract_tag_filters(raw_query: Option<&str>) -> Vec<(String, String)> {
-    let Some(raw_query) = raw_query else {
-        return Vec::new();
-    };
-
-    serde_urlencoded::from_str::<Vec<(String, String)>>(raw_query)
+fn parse_raw_query(raw_query: Option<&str>) -> Vec<(String, String)> {
+    raw_query
+        .and_then(|q| serde_urlencoded::from_str(q).ok())
         .unwrap_or_default()
-        .into_iter()
-        .filter_map(|(key, value)| {
-            key.strip_prefix("tag_")
-                .map(|tag_name| (tag_name.to_string(), value))
+}
+
+fn extract_values(pairs: &[(String, String)], key: &str) -> Vec<String> {
+    pairs
+        .iter()
+        .filter_map(|(k, v)| if k == key { Some(v.clone()) } else { None })
+        .collect()
+}
+
+fn extract_tag_filters_from_pairs(pairs: &[(String, String)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .filter_map(|(k, v)| {
+            k.strip_prefix("tag_")
+                .map(|tag_name| (tag_name.to_string(), v.clone()))
         })
         .collect()
 }
@@ -326,9 +364,9 @@ mod tests {
         ];
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: None,
-            family: None,
+            clusters: vec!["prod".to_string()],
+            services: Vec::new(),
+            families: Vec::new(),
             level: Some(MetadataLevel::default()),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -343,15 +381,57 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_by_multiple_clusters() {
+        let targets = vec![
+            create_test_target("prod", "api", "api-task"),
+            create_test_target("staging", "api", "api-task"),
+            create_test_target("dev", "api", "api-task"),
+        ];
+
+        let params = SdQueryParams {
+            clusters: vec!["prod".to_string(), "staging".to_string()],
+            services: Vec::new(),
+            families: Vec::new(),
+            level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_by_multiple_families() {
+        let targets = vec![
+            create_test_target("prod", "api", "api-task"),
+            create_test_target("prod", "worker", "worker-task"),
+            create_test_target("prod", "web", "web-task"),
+        ];
+
+        let params = SdQueryParams {
+            clusters: Vec::new(),
+            services: Vec::new(),
+            families: vec!["api-task".to_string(), "worker-task".to_string()],
+            level: Some(MetadataLevel::default()),
+            filter_mode: FilterMode::And,
+            tag_filters: Vec::new(),
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
     fn test_filter_case_sensitive() {
         let targets = vec![
             create_test_target("Prod", "api", "api-task"),
         ];
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: None,
-            family: None,
+            clusters: vec!["prod".to_string()],
+            services: Vec::new(),
+            families: Vec::new(),
             level: Some(MetadataLevel::default()),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -370,9 +450,9 @@ mod tests {
         ];
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: Some("api".to_string()),
-            family: None,
+            clusters: vec!["prod".to_string()],
+            services: vec!["api".to_string()],
+            families: Vec::new(),
             level: Some(MetadataLevel::default()),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -390,9 +470,9 @@ mod tests {
         ];
 
         let params = SdQueryParams {
-            cluster: None,
-            service: None,
-            family: None,
+            clusters: Vec::new(),
+            services: Vec::new(),
+            families: Vec::new(),
             level: Some(MetadataLevel::default()),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -415,9 +495,9 @@ mod tests {
         }];
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: None,
-            family: None,
+            clusters: vec!["prod".to_string()],
+            services: Vec::new(),
+            families: Vec::new(),
             level: Some(MetadataLevel::default()),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -440,9 +520,9 @@ mod tests {
         }];
 
         let params = SdQueryParams {
-            cluster: None,
-            service: Some("api".to_string()),
-            family: None,
+            clusters: Vec::new(),
+            services: vec!["api".to_string()],
+            families: Vec::new(),
             level: Some(MetadataLevel::default()),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -477,9 +557,9 @@ mod tests {
         }];
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: Some("api".to_string()),
-            family: None,
+            clusters: vec!["prod".to_string()],
+            services: vec!["api".to_string()],
+            families: Vec::new(),
             level: Some(MetadataLevel::default()),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -805,9 +885,9 @@ mod tests {
         ];
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: Some("api".to_string()),
-            family: Some("api-task".to_string()),
+            clusters: vec!["prod".to_string()],
+            services: vec!["api".to_string()],
+            families: vec!["api-task".to_string()],
             level: Some(MetadataLevel::Aws),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -848,9 +928,9 @@ mod tests {
         let container_level_target = filter_labels_by_level(&target, MetadataLevel::Container);
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: None,
-            family: None,
+            clusters: vec!["prod".to_string()],
+            services: Vec::new(),
+            families: Vec::new(),
             level: Some(MetadataLevel::Container),
             filter_mode: FilterMode::And,
             tag_filters: Vec::new(),
@@ -865,7 +945,8 @@ mod tests {
 
     #[test]
     fn test_extract_tag_filters_allows_multiple_same_tag() {
-        let filters = extract_tag_filters(Some("tag_task_env=prod&tag_task_env=staging&cluster=prod"));
+        let pairs = parse_raw_query(Some("tag_task_env=prod&tag_task_env=staging&cluster=prod"));
+        let filters = extract_tag_filters_from_pairs(&pairs);
         assert_eq!(
             filters,
             vec![
@@ -873,6 +954,109 @@ mod tests {
                 ("task_env".to_string(), "staging".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn test_filter_same_tag_key_is_or() {
+        // tag_env=prod&tag_env=staging → matches targets with env=prod OR env=staging
+        let mut labels_prod = HashMap::new();
+        labels_prod.insert("__meta_ecs_tag_env".to_string(), "prod".to_string());
+
+        let mut labels_staging = HashMap::new();
+        labels_staging.insert("__meta_ecs_tag_env".to_string(), "staging".to_string());
+
+        let mut labels_dev = HashMap::new();
+        labels_dev.insert("__meta_ecs_tag_env".to_string(), "dev".to_string());
+
+        let targets = vec![
+            Target { targets: vec!["10.0.0.1:8080".to_string()], labels: labels_prod },
+            Target { targets: vec!["10.0.0.2:8080".to_string()], labels: labels_staging },
+            Target { targets: vec!["10.0.0.3:8080".to_string()], labels: labels_dev },
+        ];
+
+        let params = SdQueryParams {
+            clusters: Vec::new(),
+            services: Vec::new(),
+            families: Vec::new(),
+            level: None,
+            filter_mode: FilterMode::And,
+            tag_filters: vec![
+                ("env".to_string(), "prod".to_string()),
+                ("env".to_string(), "staging".to_string()),
+            ],
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 2, "prod and staging should both match");
+    }
+
+    #[test]
+    fn test_filter_different_tag_keys_are_and() {
+        // tag_env=prod&tag_team=obs → must have env=prod AND team=obs
+        let mut labels_both = HashMap::new();
+        labels_both.insert("__meta_ecs_tag_env".to_string(), "prod".to_string());
+        labels_both.insert("__meta_ecs_tag_team".to_string(), "obs".to_string());
+
+        let mut labels_only_env = HashMap::new();
+        labels_only_env.insert("__meta_ecs_tag_env".to_string(), "prod".to_string());
+
+        let targets = vec![
+            Target { targets: vec!["10.0.0.1:8080".to_string()], labels: labels_both },
+            Target { targets: vec!["10.0.0.2:8080".to_string()], labels: labels_only_env },
+        ];
+
+        let params = SdQueryParams {
+            clusters: Vec::new(),
+            services: Vec::new(),
+            families: Vec::new(),
+            level: None,
+            filter_mode: FilterMode::And,
+            tag_filters: vec![
+                ("env".to_string(), "prod".to_string()),
+                ("team".to_string(), "obs".to_string()),
+            ],
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 1, "only target with both tags should match");
+    }
+
+    #[test]
+    fn test_filter_mixed_tag_or_and() {
+        // tag_env=prod&tag_env=staging&tag_team=obs → (env=prod OR staging) AND team=obs
+        let mut labels_prod_obs = HashMap::new();
+        labels_prod_obs.insert("__meta_ecs_tag_env".to_string(), "prod".to_string());
+        labels_prod_obs.insert("__meta_ecs_tag_team".to_string(), "obs".to_string());
+
+        let mut labels_staging_obs = HashMap::new();
+        labels_staging_obs.insert("__meta_ecs_tag_env".to_string(), "staging".to_string());
+        labels_staging_obs.insert("__meta_ecs_tag_team".to_string(), "obs".to_string());
+
+        let mut labels_prod_platform = HashMap::new();
+        labels_prod_platform.insert("__meta_ecs_tag_env".to_string(), "prod".to_string());
+        labels_prod_platform.insert("__meta_ecs_tag_team".to_string(), "platform".to_string());
+
+        let targets = vec![
+            Target { targets: vec!["10.0.0.1:8080".to_string()], labels: labels_prod_obs },
+            Target { targets: vec!["10.0.0.2:8080".to_string()], labels: labels_staging_obs },
+            Target { targets: vec!["10.0.0.3:8080".to_string()], labels: labels_prod_platform },
+        ];
+
+        let params = SdQueryParams {
+            clusters: Vec::new(),
+            services: Vec::new(),
+            families: Vec::new(),
+            level: None,
+            filter_mode: FilterMode::And,
+            tag_filters: vec![
+                ("env".to_string(), "prod".to_string()),
+                ("env".to_string(), "staging".to_string()),
+                ("team".to_string(), "obs".to_string()),
+            ],
+        };
+
+        let filtered = filter_targets(targets, &params);
+        assert_eq!(filtered.len(), 2, "prod+obs and staging+obs should match; prod+platform should not");
     }
 
     #[test]
@@ -896,9 +1080,9 @@ mod tests {
         ];
 
         let params = SdQueryParams {
-            cluster: None,
-            service: None,
-            family: None,
+            clusters: Vec::new(),
+            services: Vec::new(),
+            families: Vec::new(),
             level: Some(MetadataLevel::Aws),
             filter_mode: FilterMode::And,
             tag_filters: vec![
@@ -934,9 +1118,9 @@ mod tests {
         ];
 
         let params = SdQueryParams {
-            cluster: Some("prod".to_string()),
-            service: None,
-            family: None,
+            clusters: vec!["prod".to_string()],
+            services: Vec::new(),
+            families: Vec::new(),
             level: Some(MetadataLevel::Aws),
             filter_mode: FilterMode::Or,
             tag_filters: vec![("task_team".to_string(), "platform".to_string())],
