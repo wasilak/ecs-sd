@@ -112,10 +112,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     if should_discover {
         info!("Performing initial discovery...");
-        let targets_aws = state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await;
-        state.replace_cache_and_routing(targets_aws).await;
-        info!("Initial discovery complete");
-        publish_cache_to_gossip(&state).await;
+        match state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await {
+            Ok(targets_aws) => {
+                state.replace_cache_and_routing(targets_aws).await;
+                info!("Initial discovery complete");
+                publish_cache_to_gossip(&state).await;
+            }
+            Err(e) => {
+                warn!("Initial discovery failed — starting with empty cache: {}", e);
+            }
+        }
     } else {
         info!("Follower node: skipping initial discovery, waiting for gossip cache");
     }
@@ -271,7 +277,11 @@ async fn refresh_cache_once(state: &AppState) -> Result<usize, String> {
     let targets_aws = state
         .discovery
         .discover_all_clusters(&state.config.clusters, state.config.mode.clone())
-        .await;
+        .await
+        .map_err(|e| {
+            warn!("All clusters failed during background refresh: {}", e);
+            e.to_string()
+        })?;
     let target_count = targets_aws.len();
 
     state.replace_cache_and_routing(targets_aws).await;

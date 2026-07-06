@@ -10,9 +10,8 @@ use crate::state::AppState;
 use crate::models::{filter_labels_by_level, FilterMode, SdQueryParams, Target};
 use serde_json::json;
 use std::sync::atomic::Ordering;
-use tracing::info;
+use tracing::{debug, info, warn};
 use std::time::SystemTime;
-use tracing::debug;
 use uuid::Uuid;
 
 /// Build a single SD target entry for proxy mode: the public_address becomes the
@@ -175,20 +174,29 @@ pub async fn refresh_handler(
 
     info!("Manual discovery refresh triggered");
 
-    let targets_aws = state
-        .discovery
-        .discover_all_clusters(&clusters, state.config.mode.clone())
-        .await;
-    let count = targets_aws.len();
-    state.replace_cache_and_routing(targets_aws).await;
-
-    info!("Discovery refresh complete: {} targets", count);
-
-    Json(json!({
-        "status": "ok",
-        "targets_discovered": count
-    }))
-    .into_response()
+    match state.discovery.discover_all_clusters(&clusters, state.config.mode.clone()).await {
+        Ok(targets_aws) => {
+            let count = targets_aws.len();
+            state.replace_cache_and_routing(targets_aws).await;
+            info!("Discovery refresh complete: {} targets", count);
+            Json(json!({
+                "status": "ok",
+                "targets_discovered": count
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            warn!("Manual refresh failed — all clusters unreachable: {}", e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "all clusters failed",
+                    "detail": e.to_string()
+                })),
+            )
+            .into_response()
+        }
+    }
 }
 
 fn filter_targets(targets: Vec<Target>, params: &SdQueryParams) -> Vec<Target> {

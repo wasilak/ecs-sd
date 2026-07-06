@@ -75,6 +75,30 @@ fn apply_page(items: &mut Vec<String>, page_items: &[String], next_token: Option
     next_token.map(|s| s.to_string())
 }
 
+fn aggregate_cluster_results(
+    per_cluster: Vec<Result<Vec<Target>, DiscoveryError>>,
+) -> Result<Vec<Target>, DiscoveryError> {
+    let attempted = per_cluster.len();
+    let mut all_targets = Vec::new();
+    let mut any_succeeded = false;
+
+    for result in per_cluster {
+        match result {
+            Ok(targets) => {
+                any_succeeded = true;
+                all_targets.extend(targets);
+            }
+            Err(_) => {}
+        }
+    }
+
+    if attempted > 0 && !any_succeeded {
+        return Err(DiscoveryError::AllClustersFailed);
+    }
+
+    Ok(all_targets)
+}
+
 #[derive(Clone)]
 pub struct DiscoveryService {
     ecs_client: aws_sdk_ecs::Client,
@@ -121,29 +145,36 @@ impl DiscoveryService {
         })
     }
 
-    pub async fn discover_all_clusters(&self, cluster_names: &[String], mode: Mode) -> Vec<Target> {
-        let mut all_targets = Vec::new();
+    pub async fn discover_all_clusters(
+        &self,
+        cluster_names: &[String],
+        mode: Mode,
+    ) -> Result<Vec<Target>, DiscoveryError> {
+        let mut per_cluster: Vec<Result<Vec<Target>, DiscoveryError>> = Vec::new();
 
         for cluster_name in cluster_names {
             info!("Discovering cluster: {}", cluster_name);
-
-            match self.discover_cluster_targets(cluster_name, mode.clone()).await {
+            let result = self.discover_cluster_targets(cluster_name, mode.clone()).await;
+            match &result {
                 Ok(targets) => {
                     info!(
                         "Cluster {}: discovered {} targets",
                         cluster_name,
                         targets.len()
                     );
-                    all_targets.extend(targets);
                 }
                 Err(e) => {
                     error!("Failed to discover cluster {}: {}", cluster_name, e);
                 }
             }
+            per_cluster.push(result);
         }
 
-        info!("Total targets discovered: {}", all_targets.len());
-        all_targets
+        let result = aggregate_cluster_results(per_cluster);
+        if let Ok(ref targets) = result {
+            info!("Total targets discovered: {}", targets.len());
+        }
+        result
     }
 
     async fn discover_cluster_targets(
@@ -964,5 +995,30 @@ mod tests {
             .build();
 
         assert_eq!(extract_fargate_private_ip(&task), Some("10.157.8.169"));
+    }
+
+    #[test]
+    fn discover_all_clusters_returns_err_when_all_clusters_fail() {
+        let per_cluster: Vec<Result<Vec<Target>, DiscoveryError>> = vec![
+            Err(DiscoveryError::EcsError("simulated".to_string())),
+            Err(DiscoveryError::EcsError("simulated".to_string())),
+        ];
+        let result = aggregate_cluster_results(per_cluster);
+        assert!(matches!(result, Err(DiscoveryError::AllClustersFailed)));
+    }
+
+    #[test]
+    fn discover_all_clusters_returns_partial_ok_when_some_clusters_fail() {
+        let target = Target {
+            targets: vec!["10.0.0.1:9090".to_string()],
+            labels: HashMap::new(),
+        };
+        let per_cluster: Vec<Result<Vec<Target>, DiscoveryError>> = vec![
+            Ok(vec![target]),
+            Err(DiscoveryError::EcsError("simulated".to_string())),
+        ];
+        let result = aggregate_cluster_results(per_cluster);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
     }
 }

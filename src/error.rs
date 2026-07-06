@@ -19,6 +19,9 @@ pub enum DiscoveryError {
 
     #[error("EC2 instance has no private IP")]
     NoPrivateIp,
+
+    #[error("all configured clusters failed to return targets")]
+    AllClustersFailed,
 }
 
 #[derive(Error, Debug)]
