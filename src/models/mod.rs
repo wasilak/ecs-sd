@@ -10,6 +10,9 @@ pub use metadata_level::MetadataLevel;
 pub mod label_builder;
 pub use label_builder::LabelBuilder;
 
+pub mod label_filter;
+pub use label_filter::filter_labels_by_level;
+
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
