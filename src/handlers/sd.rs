@@ -7,10 +7,9 @@ use axum::{
 use crate::config::Mode;
 use crate::models::ProxyTarget;
 use crate::state::AppState;
-use crate::models::{filter_labels_by_level, FilterMode, MetadataLevel, SdQueryParams, Target};
+use crate::models::{filter_labels_by_level, FilterMode, SdQueryParams, Target};
 use serde_json::json;
 use tracing::info;
-use std::collections::HashMap;
 use std::time::SystemTime;
 use tracing::debug;
 use uuid::Uuid;
@@ -308,7 +307,7 @@ fn build_sd_response_with_cache_age(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::LabelBuilder;
+    use crate::models::{LabelBuilder, MetadataLevel};
     use aws_sdk_ecs::types::{Cluster, Service};
     use std::collections::HashMap;
 
