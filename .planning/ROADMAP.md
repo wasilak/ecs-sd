@@ -40,7 +40,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 
 ### 📋 v0.3.0 Operational Excellence (Phases 9–15)
 
-- [ ] **Phase 9: CacheSnapshot Refactor & Module Cleanup** - Atomic cache replacement and correct module layering (hard prerequisite for phases 11, 12, 13)
+- [x] **Phase 9: CacheSnapshot Refactor & Module Cleanup** - Atomic cache replacement and correct module layering (hard prerequisite for phases 11, 12, 13) (completed 2026-07-06)
 - [ ] **Phase 10: Error Hardening & Dependency Pinning** - Remove panics from production paths, harden outbound connections, pin SDK versions
 - [ ] **Phase 11: Rich Health Endpoint & k8s Probes** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating
 - [ ] **Phase 12: HTTP Metrics Middleware & New Metric Families** - 7 new Prometheus metrics covering HTTP traffic, discovery, churn, AWS calls, startup
@@ -165,7 +165,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 6. Proxy Mode & Fargate | v0.2.0 | 3/3 | ✓ Complete | 2026-05-26 |
 | 7. Horizontal Clustering | v0.2.0 | 6/6 | ✓ Complete | 2026-05-26 |
 | 8. Internal Metrics & Self-Registration | v0.2.0 | 3/3 | ✓ Complete | 2026-05-26 |
-| 9. CacheSnapshot Refactor & Module Cleanup | v0.3.0 | 2/3 | In Progress|  |
+| 9. CacheSnapshot Refactor & Module Cleanup | v0.3.0 | 3/3 | Complete   | 2026-07-06 |
 | 10. Error Hardening & Dependency Pinning | v0.3.0 | 0/? | Not started | - |
 | 11. Rich Health Endpoint & k8s Probes | v0.3.0 | 0/? | Not started | - |
 | 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 0/? | Not started | - |
