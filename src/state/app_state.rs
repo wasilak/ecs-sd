@@ -8,9 +8,7 @@ use uuid::Uuid;
 use crate::aws::DiscoveryService;
 use crate::config::{Config, Mode};
 use crate::error::DiscoveryError;
-use crate::models::{build_routing_table, MetadataLevel, ProxyTarget, Target};
-
-use crate::handlers::sd::filter_labels_by_level;
+use crate::models::{build_routing_table, filter_labels_by_level, MetadataLevel, ProxyTarget, Target};
 
 fn migrate_target_label_schema(target: &mut Target) {
     if let Some(cluster) = target.labels.remove("__meta_ecs_cluster") {
