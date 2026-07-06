@@ -8,6 +8,19 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 
 **Zero-config metrics discovery for ECS containers** — automatically discover and expose scrape targets for containers with metrics endpoints, using configurable metadata levels and serving cached results to prevent AWS API throttling.
 
+## Current Milestone: v0.3.0 Operational Excellence
+
+**Goal:** Harden code quality, enrich observability, and add API documentation to make ecs-sd production-grade and self-describing.
+
+**Target features:**
+- Code quality: fix all high/medium-priority technical debt (panics, lock atomicity, silent error dropping, inverted deps, dep pinning)
+- Operational metrics: 7 new Prometheus metrics (HTTP request rate/latency, per-cluster targets, target churn, AWS API calls, cache hit/miss, startup time)
+- Rich health endpoint: `/health` with cache state/age, cluster role, uptime; `/health/live` + `/health/ready` for k8s/ELB probes
+- OpenAPI/Swagger: `utoipa` integration, Swagger UI at `/swagger-ui`, machine-readable spec at `/openapi.json`
+- Config endpoint: `GET /config` exposing effective runtime configuration (sanitized, no secrets)
+- Target churn protection: configurable threshold to prevent empty-cache on AWS API glitches
+- Test coverage: HTTP handler integration tests + mocked AWS discovery tests
+
 ## Requirements
 
 ### Validated
@@ -32,9 +45,9 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
   - **CLUS-01** to **CLUS-09**: Horizontal clustering with gossip and leader election — v0.2.0
   - **MET-01** to **MET-07**: Prometheus metrics endpoint with 9 operational metrics — v0.2.0
 
-### Active
+### Active — v0.3.0
 
-*All v1.0 and v0.2.0 requirements shipped. Planning v0.3.0...*
+*Defining requirements for v0.3.0 Operational Excellence milestone.*
 
 **Deferred from v1.0/v0.2.0**
 - **PKG-03**: Full GitHub Actions release automation (GHCR push) — infrastructure task
@@ -114,32 +127,25 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 
 ## Current State
 
-**v0.2.0 Network shipped 2026-05-26.** All 8 phases complete, 25 plans total, ~50 commits.
+**v0.3.0 Operational Excellence in progress — Phase 09 complete 2026-07-06.**
 
-- ~3,489 LOC Rust across modular architecture (`routes/`, `handlers/`, `models/`, `aws/`, `cluster/`, `metrics/`)
-- 103 unit tests passing (`cargo test`)
-- **Three operating modes:**
-  - Discovery mode (v0.1.0): Direct target exposure for EC2 launch type
-  - Proxy mode (v0.2.0): Reverse proxy for Fargate support in segmented networks
-  - Cluster mode (v0.2.0): Gossip-based HA with leader election
-- **Observability:** Prometheus `/metrics` endpoint with 9 operational metrics
-- **Deployment:** Terraform module for Fargate with Cloud Map service discovery
+- 159 unit tests passing (`cargo test`)
+- **Three operating modes:** Discovery, Proxy, Cluster (unchanged from v0.2.0)
 
-**Architecture highlights:**
-- Gossip-based cluster membership via `chitchat` crate
-- Deterministic leader election (min NodeId) with ~10s failover
-- Stale-while-revalidate cache with jitter and cooperative shutdown
-- Prometheus-compatible HTTP service discovery with 14 metadata labels
-- Self-registration via standard docker labels (emergent behavior)
+**Phase 09 complete — cachesnapshot-refactor-module-cleanup:**
+- `filter_labels_by_level` moved to `src/models/label_filter.rs` (QUAL-05: state layer no longer imports from handlers)
+- `AppState` consolidated to single `Arc<RwLock<CacheSnapshot>>` — atomic cache replacement, no torn reads (QUAL-01)
+- `last_manual_refresh_request` converted to `Arc<AtomicU64>` — no async lock for rate limiting
+- `migrate_target_label_schema` dead-code shim removed (QUAL-06)
+- `discover_all_clusters` returns `Result<Vec<Target>, DiscoveryError>` — stale cache preserved on total AWS failure (QUAL-02)
 
 **Known gaps carried forward:**
 - PKG-03: GHCR auto-push / GitHub Actions release not fully wired
-- QUAL-02/03: Some `unwrap`/`expect` in production paths; `thiserror` not added
-- AWS credential modes: E2E testing incomplete (needs all auth method access)
+- QUAL-03: Some `unwrap`/`expect` in production paths remain
+- WR-03 (code review): `publish_cache_to_gossip` holds snapshot lock across async gossip awaits — should clone then release
+- AWS credential modes: E2E testing incomplete
 
-**Next milestone: v0.3.0 (TBD)**
-- Potential areas: Performance optimization, extended metrics, operational tooling
-- Pending requirements review and prioritization
+**v0.3.0 remaining phases:** Phase 10 (error-hardening-&-dependency-pinning) next.
 
 ## Evolution
 
@@ -161,4 +167,4 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 </details>
 
 ---
-*Last updated: 2026-05-26 after v0.2.0 milestone — all requirements validated, planning v0.3.0*
+*Last updated: 2026-07-06 — Phase 09 complete, v0.3.0 in progress*
