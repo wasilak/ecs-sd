@@ -9,6 +9,7 @@ use crate::models::ProxyTarget;
 use crate::state::AppState;
 use crate::models::{filter_labels_by_level, FilterMode, SdQueryParams, Target};
 use serde_json::json;
+use std::sync::atomic::Ordering;
 use tracing::info;
 use std::time::SystemTime;
 use tracing::debug;
@@ -57,19 +58,22 @@ pub async fn sd_handler(
             .as_deref()
             .unwrap_or("http");
 
-        let routing = state.routing_table.read().await;
-        let proxy_targets: Vec<Target> = routing
-            .iter()
-            .map(|(uuid, proxy_target)| {
-                build_proxy_sd_target(uuid, proxy_target, public_address, public_address_scheme)
-            })
-            .map(|target| filter_labels_by_level(&target, level))
-            .collect();
-        drop(routing);
+        let (proxy_targets, last_refresh) = {
+            let snap = state.snapshot.read().await;
+            let last_refresh = snap.last_refresh;
+            let targets: Vec<Target> = snap.routing_table
+                .iter()
+                .map(|(uuid, proxy_target)| {
+                    build_proxy_sd_target(uuid, proxy_target, public_address, public_address_scheme)
+                })
+                .map(|target| filter_labels_by_level(&target, level))
+                .collect();
+            (targets, last_refresh)
+            // snap lock released here
+        };
 
         let filtered = filter_targets(proxy_targets, &params);
 
-        let last_refresh = *state.last_refresh.read().await;
         let cache_age_seconds = calculate_cache_age_seconds(last_refresh, SystemTime::now());
         let cache_state = if cache_age_seconds > state.cache_ttl_seconds {
             "stale"
@@ -80,12 +84,13 @@ pub async fn sd_handler(
         return build_sd_response_with_cache_age(filtered, cache_age_seconds, cache_state);
     }
 
-    let cache = state.cache.read().await;
-    let maybe_targets = cache
-        .get(&level)
-        .cloned();
-
-    let targets = maybe_targets.unwrap_or_default();
+    let (targets, last_refresh) = {
+        let snap = state.snapshot.read().await;
+        let targets = snap.cache.get(&level).cloned().unwrap_or_default();
+        let last_refresh = snap.last_refresh;
+        (targets, last_refresh)
+        // snap lock released here
+    };
 
     if !targets.is_empty() {
         debug!("cache hit: {} targets served", targets.len());
@@ -93,11 +98,8 @@ pub async fn sd_handler(
         debug!("cache miss: 0 targets served for level={}", level);
     }
 
-    drop(cache); // Release read lock before filtering
-
     let filtered = filter_targets(targets, &params);
 
-    let last_refresh = *state.last_refresh.read().await;
     let cache_age_seconds = calculate_cache_age_seconds(last_refresh, SystemTime::now());
     let cache_state = if cache_age_seconds > state.cache_ttl_seconds {
         "stale"
@@ -129,8 +131,8 @@ fn authorize_refresh(
     Ok(())
 }
 
-fn refresh_retry_after_seconds(last_request: SystemTime, now: SystemTime, min_interval: u64) -> Option<u64> {
-    let elapsed = now.duration_since(last_request).unwrap_or_default().as_secs();
+fn refresh_retry_after_seconds(last_request_secs: u64, now_secs: u64, min_interval: u64) -> Option<u64> {
+    let elapsed = now_secs.saturating_sub(last_request_secs);
     if elapsed < min_interval {
         Some(min_interval - elapsed)
     } else {
@@ -150,24 +152,24 @@ pub async fn refresh_handler(
         return (status, Json(body)).into_response();
     }
 
-    let now = SystemTime::now();
+    let now_secs = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let last_secs = state.last_manual_refresh_request.load(Ordering::SeqCst);
+    if let Some(retry_after_seconds) =
+        refresh_retry_after_seconds(last_secs, now_secs, state.config.refresh_min_interval)
     {
-        let mut last_manual_refresh = state.last_manual_refresh_request.write().await;
-        if let Some(retry_after_seconds) =
-            refresh_retry_after_seconds(*last_manual_refresh, now, state.config.refresh_min_interval)
-        {
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(json!({
-                    "error": "rate limited",
-                    "retry_after_seconds": retry_after_seconds
-                })),
-            )
-                .into_response();
-        }
-
-        *last_manual_refresh = now;
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({
+                "error": "rate limited",
+                "retry_after_seconds": retry_after_seconds
+            })),
+        )
+            .into_response();
     }
+    state.last_manual_refresh_request.store(now_secs, Ordering::SeqCst);
 
     let clusters = state.config.clusters.clone();
 
@@ -652,25 +654,22 @@ mod tests {
 
     #[test]
     fn refresh_retry_after_seconds_returns_none_when_interval_elapsed() {
-        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
-        let last = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(60);
-        let retry = refresh_retry_after_seconds(last, now, 30);
+        // now_secs=100, last_request_secs=60: elapsed=40 >= 30
+        let retry = refresh_retry_after_seconds(60, 100, 30);
         assert_eq!(retry, None);
     }
 
     #[test]
     fn refresh_retry_after_seconds_returns_remaining_when_rate_limited() {
-        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
-        let last = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(95);
-        let retry = refresh_retry_after_seconds(last, now, 30);
+        // now_secs=100, last_request_secs=95: elapsed=5 < 30, remaining=25
+        let retry = refresh_retry_after_seconds(95, 100, 30);
         assert_eq!(retry, Some(25));
     }
 
     #[test]
     fn refresh_retry_after_seconds_handles_clock_skew() {
-        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(50);
-        let last = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
-        let retry = refresh_retry_after_seconds(last, now, 30);
+        // now_secs=50, last_request_secs=100: saturating_sub gives 0 < 30, remaining=30
+        let retry = refresh_retry_after_seconds(100, 50, 30);
         assert_eq!(retry, Some(30));
     }
 
