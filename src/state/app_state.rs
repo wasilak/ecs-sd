@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::time::SystemTime;
 
 use tokio::sync::RwLock;
@@ -10,34 +11,66 @@ use crate::config::{Config, Mode};
 use crate::error::DiscoveryError;
 use crate::models::{build_routing_table, filter_labels_by_level, MetadataLevel, ProxyTarget, Target};
 
-fn migrate_target_label_schema(target: &mut Target) {
-    if let Some(cluster) = target.labels.remove("__meta_ecs_cluster") {
-        target
-            .labels
-            .entry("__meta_ecs_cluster_name".to_string())
-            .or_insert(cluster);
-    }
+#[derive(Clone)]
+pub struct CacheSnapshot {
+    pub cache: HashMap<MetadataLevel, Vec<Target>>,
+    pub last_refresh: SystemTime,
+    pub routing_table: HashMap<Uuid, ProxyTarget>,
+}
 
-    if let Some(service) = target.labels.remove("__meta_ecs_service") {
-        target
-            .labels
-            .entry("__meta_ecs_service_name".to_string())
-            .or_insert(service);
+impl Default for CacheSnapshot {
+    fn default() -> Self {
+        Self {
+            cache: HashMap::new(),
+            last_refresh: SystemTime::UNIX_EPOCH,
+            routing_table: HashMap::new(),
+        }
+    }
+}
+
+fn build_snapshot(targets_aws: Vec<Target>, mode: Mode) -> CacheSnapshot {
+    let mut cache = HashMap::new();
+    cache.insert(MetadataLevel::Aws, targets_aws.clone());
+    cache.insert(
+        MetadataLevel::Cluster,
+        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Cluster)).collect(),
+    );
+    cache.insert(
+        MetadataLevel::Service,
+        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Service)).collect(),
+    );
+    cache.insert(
+        MetadataLevel::Task,
+        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Task)).collect(),
+    );
+    cache.insert(
+        MetadataLevel::Container,
+        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Container)).collect(),
+    );
+
+    let routing_table = if mode == Mode::Proxy {
+        build_routing_table(&targets_aws)
+    } else {
+        HashMap::new()
+    };
+
+    CacheSnapshot {
+        cache,
+        last_refresh: SystemTime::now(),
+        routing_table,
     }
 }
 
 #[derive(Clone)]
 pub struct AppState {
-    pub cache: Arc<RwLock<HashMap<MetadataLevel, Vec<Target>>>>,
-    pub last_refresh: Arc<RwLock<SystemTime>>,
+    pub snapshot: Arc<RwLock<CacheSnapshot>>,
     pub cache_ttl_seconds: u64,
     pub config: Arc<Config>,
     pub discovery: DiscoveryService,
-    pub routing_table: Arc<RwLock<HashMap<Uuid, ProxyTarget>>>,
     pub http_client: reqwest::Client,
     pub cluster: Option<Arc<crate::cluster::ClusterState>>,
     pub metrics: Arc<crate::metrics::MetricsState>,
-    pub last_manual_refresh_request: Arc<RwLock<SystemTime>>,
+    pub last_manual_refresh_request: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -57,16 +90,14 @@ impl AppState {
             .expect("failed to build reqwest client");
 
         Ok(Self {
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            last_refresh: Arc::new(RwLock::new(SystemTime::now())),
+            snapshot: Arc::new(RwLock::new(CacheSnapshot::default())),
             cache_ttl_seconds: config.refresh_interval.max(1),
             config: Arc::new(config),
             discovery,
-            routing_table: Arc::new(RwLock::new(HashMap::new())),
             http_client,
             cluster,
             metrics,
-            last_manual_refresh_request: Arc::new(RwLock::new(SystemTime::UNIX_EPOCH)),
+            last_manual_refresh_request: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -74,47 +105,11 @@ impl AppState {
     /// also rebuilds the routing table. Called from both the background refresh loop
     /// (main.rs) and the manual POST /refresh handler (sd.rs), ensuring PROX-06.
     pub async fn replace_cache_and_routing(&self, targets_aws: Vec<Target>) {
-        let mut targets_aws = targets_aws;
-        for target in &mut targets_aws {
-            migrate_target_label_schema(target);
-        }
-
-        let targets_cluster: Vec<Target> = targets_aws
-            .iter()
-            .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
-            .collect();
-        let targets_service: Vec<Target> = targets_aws
-            .iter()
-            .map(|t| filter_labels_by_level(t, MetadataLevel::Service))
-            .collect();
-        let targets_task: Vec<Target> = targets_aws
-            .iter()
-            .map(|t| filter_labels_by_level(t, MetadataLevel::Task))
-            .collect();
-        let targets_container: Vec<Target> = targets_aws
-            .iter()
-            .map(|t| filter_labels_by_level(t, MetadataLevel::Container))
-            .collect();
-
-        {
-            let mut cache = self.cache.write().await;
-            cache.insert(MetadataLevel::Aws, targets_aws.clone());
-            cache.insert(MetadataLevel::Cluster, targets_cluster);
-            cache.insert(MetadataLevel::Service, targets_service);
-            cache.insert(MetadataLevel::Task, targets_task);
-            cache.insert(MetadataLevel::Container, targets_container);
-        }
-
-        {
-            let mut last_refresh = self.last_refresh.write().await;
-            *last_refresh = SystemTime::now();
-        }
-
-        if self.config.mode == Mode::Proxy {
-            let routing = build_routing_table(&targets_aws);
-            let mut rt = self.routing_table.write().await;
-            *rt = routing;
-        }
+        // Build all values BEFORE acquiring the write lock (avoids deadlock — Pitfall 1)
+        let new_snapshot = build_snapshot(targets_aws, self.config.mode.clone());
+        // Single atomic write
+        let mut snap = self.snapshot.write().await;
+        *snap = new_snapshot;
     }
 }
 
@@ -123,48 +118,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrate_target_label_schema_maps_legacy_keys_to_canonical_names() {
-        let mut target = Target {
-            targets: vec!["10.0.0.1:8080".to_string()],
-            labels: HashMap::from([
-                ("__meta_ecs_cluster".to_string(), "prod".to_string()),
-                ("__meta_ecs_service".to_string(), "api".to_string()),
-            ]),
-        };
+    fn build_snapshot_produces_consistent_tiers() {
+        let targets = vec![
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: {
+                    let mut m = HashMap::new();
+                    m.insert("__meta_ecs_task_arn".to_string(), "arn:aws:ecs:us-east-1:123:task/cluster/task1".to_string());
+                    m.insert("__meta_ecs_container_name".to_string(), "app1".to_string());
+                    m.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
+                    m.insert("__meta_ecs_service_name".to_string(), "api".to_string());
+                    m.insert("__meta_ecs_task_family".to_string(), "api-task".to_string());
+                    m
+                },
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: {
+                    let mut m = HashMap::new();
+                    m.insert("__meta_ecs_task_arn".to_string(), "arn:aws:ecs:us-east-1:123:task/cluster/task2".to_string());
+                    m.insert("__meta_ecs_container_name".to_string(), "app2".to_string());
+                    m.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
+                    m.insert("__meta_ecs_service_name".to_string(), "worker".to_string());
+                    m.insert("__meta_ecs_task_family".to_string(), "worker-task".to_string());
+                    m
+                },
+            },
+        ];
 
-        migrate_target_label_schema(&mut target);
+        let snap = build_snapshot(targets.clone(), Mode::Proxy);
 
+        // Aws tier has all input targets
         assert_eq!(
-            target.labels.get("__meta_ecs_cluster_name").map(String::as_str),
-            Some("prod")
+            snap.cache.get(&MetadataLevel::Aws).map(Vec::len),
+            Some(targets.len()),
+            "Aws tier must contain all input targets"
         );
+
+        // All tiers are present
+        for level in [
+            MetadataLevel::Aws,
+            MetadataLevel::Cluster,
+            MetadataLevel::Service,
+            MetadataLevel::Task,
+            MetadataLevel::Container,
+        ] {
+            assert!(snap.cache.contains_key(&level), "tier {:?} must be present", level);
+        }
+
+        // Proxy mode: routing_table is non-empty and size matches input
+        assert!(!snap.routing_table.is_empty(), "routing_table must be non-empty in proxy mode");
         assert_eq!(
-            target.labels.get("__meta_ecs_service_name").map(String::as_str),
-            Some("api")
+            snap.routing_table.len(),
+            targets.len(),
+            "routing_table size must match input count"
         );
-        assert!(!target.labels.contains_key("__meta_ecs_cluster"));
-        assert!(!target.labels.contains_key("__meta_ecs_service"));
-    }
-
-    #[test]
-    fn migrate_target_label_schema_keeps_existing_canonical_values() {
-        let mut target = Target {
-            targets: vec!["10.0.0.1:8080".to_string()],
-            labels: HashMap::from([
-                ("__meta_ecs_cluster".to_string(), "legacy-prod".to_string()),
-                (
-                    "__meta_ecs_cluster_name".to_string(),
-                    "canonical-prod".to_string(),
-                ),
-            ]),
-        };
-
-        migrate_target_label_schema(&mut target);
-
-        assert_eq!(
-            target.labels.get("__meta_ecs_cluster_name").map(String::as_str),
-            Some("canonical-prod")
-        );
-        assert!(!target.labels.contains_key("__meta_ecs_cluster"));
     }
 }
