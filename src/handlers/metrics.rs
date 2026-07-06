@@ -7,7 +7,7 @@ use crate::state::AppState;
 /// Updates dynamic gauges (cache_age, cluster metrics) before gathering.
 pub async fn metrics_handler(State(state): State<AppState>) -> Response {
     // Update cache age gauge
-    let last_refresh = *state.last_refresh.read().await;
+    let last_refresh = { let snap = state.snapshot.read().await; snap.last_refresh };
     let age_secs = std::time::SystemTime::now()
         .duration_since(last_refresh)
         .unwrap_or_default()

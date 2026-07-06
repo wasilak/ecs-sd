@@ -313,17 +313,14 @@ async fn shutdown_signal(shutdown_tx: watch::Sender<bool>) {
 
 async fn publish_cache_to_gossip(state: &AppState) {
     let Some(ref cluster) = state.cluster else { return };
-    {
-        let cache = state.cache.read().await;
-        if let Some(targets) = cache.get(&crate::models::MetadataLevel::Aws) {
-            if let Ok(json) = serde_json::to_string(targets) {
-                cluster.publish_cache(&json).await;
-            }
+    let snap = state.snapshot.read().await;
+    if let Some(targets) = snap.cache.get(&crate::models::MetadataLevel::Aws) {
+        if let Ok(json) = serde_json::to_string(targets) {
+            cluster.publish_cache(&json).await;
         }
     }
     if state.config.mode == crate::config::Mode::Proxy {
-        let rt = state.routing_table.read().await;
-        let gossip_rt: Vec<GossipProxyTarget> = rt.values().map(|pt| GossipProxyTarget {
+        let gossip_rt: Vec<GossipProxyTarget> = snap.routing_table.values().map(|pt| GossipProxyTarget {
             route_id: pt.route_id.to_string(),
             address: pt.address.clone(),
             labels: pt.labels.clone(),

@@ -97,8 +97,8 @@ pub async fn proxy_handler(
 
     // Look up routing table — release read lock before HTTP call (Risk 3 / T-06-03-05).
     let proxy_target = {
-        let routing = state.routing_table.read().await;
-        routing.get(&uuid).cloned()
+        let snap = state.snapshot.read().await;
+        snap.routing_table.get(&uuid).cloned()
     };
     let proxy_target = match proxy_target {
         Some(t) => t,
