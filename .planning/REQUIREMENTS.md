@@ -11,15 +11,15 @@
 
 - [x] **QUAL-01**: The cache, routing table, and last_refresh timestamp are wrapped in a single `Arc<RwLock<CacheSnapshot>>` so cache replacement is one atomic write with no intermediate inconsistent state visible to concurrent handlers
 - [x] **QUAL-02**: When all clusters fail during a discovery refresh, the existing stale cache is preserved and an error is logged — the cache is never replaced with an empty target list due to transient AWS API failures
-- [ ] **QUAL-03**: `Response::builder()` calls in `proxy_handler` and `metrics_handler` are handled with proper error propagation (no `unwrap()`) — failed response construction returns a 500 to the caller instead of panicking the Tokio task
-- [ ] **QUAL-04**: The `reqwest::Client` in `AppState` is configured with `connect_timeout(5s)` and `tcp_keepalive(10s)` to prevent TCP black-hole connections from exhausting file descriptors under concurrent scrapes
+- [x] **QUAL-03**: `Response::builder()` calls in `proxy_handler` and `metrics_handler` are handled with proper error propagation (no `unwrap()`) — failed response construction returns a 500 to the caller instead of panicking the Tokio task
+- [x] **QUAL-04**: The `reqwest::Client` in `AppState` is configured with `connect_timeout(5s)` and `tcp_keepalive(10s)` to prevent TCP black-hole connections from exhausting file descriptors under concurrent scrapes
 
 ### Code Quality — Architecture & Dependencies
 
 - [x] **QUAL-05**: `filter_labels_by_level` lives in `src/models/` (not `src/handlers/sd.rs`) so the state layer does not import from the handler layer
 - [x] **QUAL-06**: `migrate_target_label_schema` is removed from the cache refresh hot path; `src/aws/discovery.rs` emits canonical label keys (`__meta_ecs_cluster_name`, `__meta_ecs_service_name`) directly
-- [ ] **QUAL-07**: `aws-sdk-ec2` in `Cargo.toml` is pinned to an exact patch version matching the `aws-sdk-ecs` release series (e.g. `1.124.x`) so `cargo update` cannot silently pull a mismatched EC2 SDK
-- [ ] **QUAL-08**: If no AWS region can be resolved at startup (no env var, no instance metadata), the service exits with a clear error message instead of silently defaulting to `us-east-1`
+- [x] **QUAL-07**: `aws-sdk-ec2` in `Cargo.toml` is pinned to an exact patch version matching the `aws-sdk-ecs` release series (e.g. `1.124.x`) so `cargo update` cannot silently pull a mismatched EC2 SDK
+- [x] **QUAL-08**: If no AWS region can be resolved at startup (no env var, no instance metadata), the service exits with a clear error message instead of silently defaulting to `us-east-1`
 
 ### Health Endpoint
 
@@ -92,10 +92,10 @@
 | QUAL-02 | Phase 9 | Complete |
 | QUAL-05 | Phase 9 | Complete |
 | QUAL-06 | Phase 9 | Complete |
-| QUAL-03 | Phase 10 | Pending |
-| QUAL-04 | Phase 10 | Pending |
-| QUAL-07 | Phase 10 | Pending |
-| QUAL-08 | Phase 10 | Pending |
+| QUAL-03 | Phase 10 | Complete |
+| QUAL-04 | Phase 10 | Complete |
+| QUAL-07 | Phase 10 | Complete |
+| QUAL-08 | Phase 10 | Complete |
 | HEALTH-01 | Phase 11 | Pending |
 | HEALTH-02 | Phase 11 | Pending |
 | HEALTH-03 | Phase 11 | Pending |
