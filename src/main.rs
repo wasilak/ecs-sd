@@ -26,6 +26,17 @@ use crate::cluster::{ClusterState, GossipProxyTarget};
 use crate::config::{Config, ClusterMode};
 use crate::state::AppState;
 
+fn require_region(region: Option<String>) -> Result<String, String> {
+    match region {
+        Some(r) => Ok(r),
+        None => Err(
+            "no AWS region configured. Set AWS_REGION or AWS_DEFAULT_REGION environment variable, \
+             or run on an EC2/ECS instance with IMDSv2 enabled."
+                .to_string(),
+        ),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
@@ -45,16 +56,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Create AWS clients
+    // Resolve and validate AWS region before building any AWS clients
+    let sdk_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let region = match require_region(sdk_config.region().map(|r| r.to_string())) {
+        Ok(r) => r,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            std::process::exit(1);
+        }
+    };
+
+    // Create AWS clients (region gate passed)
     let (ecs_client, ec2_client) = aws::client::create_clients().await?;
     let sts_client = aws::client::create_sts_client().await;
-    
-    // Extract region from SDK config
-    let sdk_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-    let region = sdk_config
-        .region()
-        .map(|r| r.to_string())
-        .unwrap_or_else(|| "us-east-1".to_string());
 
     // Initialize cluster state if cluster mode is active
     let cluster: Option<std::sync::Arc<ClusterState>> = match config.cluster_mode {
