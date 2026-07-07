@@ -380,6 +380,23 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn require_region_errors_when_none() {
+        let result = require_region(None);
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("AWS region"),
+            "error message must mention 'AWS region', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn require_region_returns_region_when_present() {
+        let result = require_region(Some("eu-west-1".to_string()));
+        assert_eq!(result, Ok("eu-west-1".to_string()));
+    }
+
+    #[test]
     fn jittered_delay_stays_within_plus_minus_ten_percent_bounds() {
         let base = Duration::from_secs(60);
         let high = calculate_jittered_delay(base, 0.10);
