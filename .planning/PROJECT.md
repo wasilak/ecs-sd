@@ -49,6 +49,12 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 
 *Defining requirements for v0.3.0 Operational Excellence milestone.*
 
+**Validated in Phase 10 (error-hardening-dependency-pinning):**
+- **QUAL-03**: No panic on HTTP response construction — `unwrap_or_else` fallbacks in proxy/metrics handlers — v0.3.0
+- **QUAL-04**: reqwest connect timeout (5s) and TCP keepalive (10s) on shared client — v0.3.0
+- **QUAL-07**: Exact version pins for `aws-sdk-ec2=1.236.0` and `aws-sdk-ecs=1.133.1` — v0.3.0
+- **QUAL-08**: Hard startup failure on missing `AWS_REGION` via `require_region()` gate — v0.3.0
+
 **Deferred from v1.0/v0.2.0**
 - **PKG-03**: Full GitHub Actions release automation (GHCR push) — infrastructure task
 - **QUAL-02/03**: Idiomatic error handling audit (`thiserror`, remove unwrap) — refactoring
@@ -167,4 +173,4 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 </details>
 
 ---
-*Last updated: 2026-07-06 — Phase 09 complete, v0.3.0 in progress*
+*Last updated: 2026-07-07 — Phase 10 complete, v0.3.0 in progress*
