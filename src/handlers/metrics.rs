@@ -1,4 +1,4 @@
-use axum::{extract::State, response::Response, http::StatusCode, body::Body};
+use axum::{extract::State, response::{IntoResponse, Response}, http::StatusCode, body::Body};
 use prometheus::{TextEncoder, Encoder};
 
 use crate::state::AppState;
@@ -32,15 +32,20 @@ pub async fn metrics_handler(State(state): State<AppState>) -> Response {
     let mut buffer = vec![];
     
     if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
+        tracing::warn!(error = %e, "metrics encoding error");
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(format!("metrics encoding error: {}", e)))
-            .unwrap();
+            .body(Body::from("metrics encoding error"))
+            .unwrap_or_else(|_| {
+                (StatusCode::INTERNAL_SERVER_ERROR, "metrics encoding error").into_response()
+            });
     }
 
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", encoder.format_type())
         .body(Body::from(buffer))
-        .unwrap()
+        .unwrap_or_else(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "failed to build metrics response").into_response()
+        })
 }

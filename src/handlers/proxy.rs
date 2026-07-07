@@ -162,11 +162,16 @@ pub async fn proxy_handler(
         .with_label_values(&[&status.as_u16().to_string()])
         .inc();
     let upstream_headers = upstream_resp.headers().clone();
-    let mut resp_builder = Response::builder().status(status);
-    *resp_builder.headers_mut().unwrap() = upstream_headers;
-    resp_builder
+    let mut builder = Response::builder().status(status);
+    for (key, value) in upstream_headers.iter() {
+        builder = builder.header(key, value);
+    }
+    builder
         .body(Body::from_stream(upstream_resp.bytes_stream()))
-        .unwrap()
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "failed to construct proxy response");
+            (StatusCode::INTERNAL_SERVER_ERROR, "response construction failed").into_response()
+        })
 }
 
 #[cfg(test)]
