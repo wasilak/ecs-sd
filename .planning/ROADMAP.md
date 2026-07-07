@@ -41,7 +41,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 ### 📋 v0.3.0 Operational Excellence (Phases 9–15)
 
 - [x] **Phase 9: CacheSnapshot Refactor & Module Cleanup** - Atomic cache replacement and correct module layering (hard prerequisite for phases 11, 12, 13) (completed 2026-07-06)
-- [ ] **Phase 10: Error Hardening & Dependency Pinning** - Remove panics from production paths, harden outbound connections, pin SDK versions
+- [x] **Phase 10: Error Hardening & Dependency Pinning** - Remove panics from production paths, harden outbound connections, pin SDK versions (completed 2026-07-07)
 - [ ] **Phase 11: Rich Health Endpoint & k8s Probes** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating
 - [ ] **Phase 12: HTTP Metrics Middleware & New Metric Families** - 7 new Prometheus metrics covering HTTP traffic, discovery, churn, AWS calls, startup
 - [ ] **Phase 13: Config Endpoint & Churn Protection** - Runtime config introspection and stale-cache preservation on AWS glitch
@@ -80,8 +80,9 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
   4. Starting the binary without a resolvable AWS region prints a human-readable error message and exits with a non-zero code
 
 **Plans**: 2 plans (wave 1, both parallel — no file overlap)
-- [ ] 10-01-PLAN.md — Runtime error hardening: remove unwrap panics from proxy/metrics handlers (QUAL-03), add reqwest connect_timeout + tcp_keepalive (QUAL-04)
-- [ ] 10-02-PLAN.md — Dependency pinning + startup region validation: exact-pin aws-sdk-ec2/ecs (QUAL-07), hard-fail on missing AWS region (QUAL-08)
+
+- [x] 10-01-PLAN.md — Runtime error hardening: remove unwrap panics from proxy/metrics handlers (QUAL-03), add reqwest connect_timeout + tcp_keepalive (QUAL-04)
+- [x] 10-02-PLAN.md — Dependency pinning + startup region validation: exact-pin aws-sdk-ec2/ecs (QUAL-07), hard-fail on missing AWS region (QUAL-08)
 
 ### Phase 11: Rich Health Endpoint & k8s Probes
 
@@ -168,7 +169,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 7. Horizontal Clustering | v0.2.0 | 6/6 | ✓ Complete | 2026-05-26 |
 | 8. Internal Metrics & Self-Registration | v0.2.0 | 3/3 | ✓ Complete | 2026-05-26 |
 | 9. CacheSnapshot Refactor & Module Cleanup | v0.3.0 | 3/3 | Complete    | 2026-07-06 |
-| 10. Error Hardening & Dependency Pinning | v0.3.0 | 0/2 | Not started | - |
+| 10. Error Hardening & Dependency Pinning | v0.3.0 | 2/2 | Complete   | 2026-07-07 |
 | 11. Rich Health Endpoint & k8s Probes | v0.3.0 | 0/? | Not started | - |
 | 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 0/? | Not started | - |
 | 13. Config Endpoint & Churn Protection | v0.3.0 | 0/? | Not started | - |
