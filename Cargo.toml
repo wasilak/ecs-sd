@@ -8,11 +8,11 @@ aws-config = { version = "1.8.16", default-features = false, features = [
   "rustls",
   "rt-tokio",
 ] }
-aws-sdk-ecs = { version = "1.124.0", default-features = false, features = [
+aws-sdk-ecs = { version = "=1.133.1", default-features = false, features = [
   "rustls",
   "rt-tokio",
 ] }
-aws-sdk-ec2 = { version = "1.0", default-features = false, features = [
+aws-sdk-ec2 = { version = "=1.236.0", default-features = false, features = [
   "rustls",
   "rt-tokio",
 ] }
