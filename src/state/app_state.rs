@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -85,6 +85,8 @@ impl AppState {
     ) -> Result<Self, DiscoveryError> {
         let discovery = DiscoveryService::new(ecs_client, ec2_client, sts_client, region).await?;
         let http_client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .tcp_keepalive(Duration::from_secs(10))
             // No client-level timeout: timeout set per-request from X-Prometheus-Scrape-Timeout-Seconds
             .build()
             .expect("failed to build reqwest client");
