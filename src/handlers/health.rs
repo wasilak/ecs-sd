@@ -33,16 +33,34 @@ pub struct LastRefreshHealth {
     pub timestamp: Option<u64>,
 }
 
-// RED phase stubs — return wrong values so behavioral tests fail
+/// Returns the health status label and HTTP status code for the /health endpoint.
+///
+/// Rules (HEALTH-02):
+/// - Cache populated + last refresh succeeded  → "healthy"  200
+/// - Cache populated + last refresh failed/none → "degraded" 200
+/// - Cache empty   + last refresh failed        → "starting" 503  ← ONLY 503 case
+/// - Cache empty   + last refresh ok/none       → "starting" 200
 fn determine_health_status(
-    _target_count: usize,
-    _last_outcome: &Option<RefreshOutcome>,
+    target_count: usize,
+    last_outcome: &Option<RefreshOutcome>,
 ) -> (&'static str, StatusCode) {
-    ("wrong", StatusCode::OK)
+    match (target_count > 0, last_outcome) {
+        (true, Some(RefreshOutcome { success: true, .. })) => ("healthy", StatusCode::OK),
+        (true, _) => ("degraded", StatusCode::OK),
+        (_, Some(RefreshOutcome { success: false, .. })) => {
+            ("starting", StatusCode::SERVICE_UNAVAILABLE)
+        }
+        (_, _) => ("starting", StatusCode::OK),
+    }
 }
 
-fn determine_readiness_status(_target_count: usize) -> (&'static str, StatusCode) {
-    ("wrong", StatusCode::OK)
+/// Returns the readiness status label and HTTP status code for /health/ready (HEALTH-04).
+fn determine_readiness_status(target_count: usize) -> (&'static str, StatusCode) {
+    if target_count > 0 {
+        ("ready", StatusCode::OK)
+    } else {
+        ("not_ready", StatusCode::SERVICE_UNAVAILABLE)
+    }
 }
 
 pub async fn health_handler(
@@ -119,9 +137,10 @@ pub async fn health_handler(
     (http_status, Json(response))
 }
 
+/// Liveness probe handler — always returns 200 {"status":"alive"} (HEALTH-03).
+/// Reads no state: AWS outages cannot cause eviction via this endpoint.
 pub async fn health_live_handler() -> Json<serde_json::Value> {
-    // RED phase stub — wrong value so test fails
-    Json(serde_json::json!({"status": "wrong"}))
+    Json(serde_json::json!({"status": "alive"}))
 }
 
 pub async fn health_ready_handler(
