@@ -49,6 +49,12 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 
 *Defining requirements for v0.3.0 Operational Excellence milestone.*
 
+**Validated in Phase 11 (rich-health-endpoint):**
+- **HEALTH-01**: GET /health returns structured JSON (status, version, uptime_seconds, cache, cluster, last_refresh) — v0.3.0
+- **HEALTH-02**: GET /health returns HTTP 503 only when cache is empty AND last refresh failed — v0.3.0
+- **HEALTH-03**: GET /health/live always returns HTTP 200 with `{"status":"alive"}` — no state checked — v0.3.0
+- **HEALTH-04**: GET /health/ready returns 200 when cache has targets, 503 when empty — v0.3.0
+
 **Validated in Phase 10 (error-hardening-dependency-pinning):**
 - **QUAL-03**: No panic on HTTP response construction — `unwrap_or_else` fallbacks in proxy/metrics handlers — v0.3.0
 - **QUAL-04**: reqwest connect timeout (5s) and TCP keepalive (10s) on shared client — v0.3.0
@@ -173,4 +179,4 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 </details>
 
 ---
-*Last updated: 2026-07-07 — Phase 10 complete, v0.3.0 in progress*
+*Last updated: 2026-07-08 — Phase 11 complete (HEALTH-01..04), v0.3.0 in progress*

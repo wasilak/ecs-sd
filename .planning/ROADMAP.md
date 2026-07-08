@@ -42,7 +42,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 
 - [x] **Phase 9: CacheSnapshot Refactor & Module Cleanup** - Atomic cache replacement and correct module layering (hard prerequisite for phases 11, 12, 13) (completed 2026-07-06)
 - [x] **Phase 10: Error Hardening & Dependency Pinning** - Remove panics from production paths, harden outbound connections, pin SDK versions (completed 2026-07-07)
-- [ ] **Phase 11: Rich Health Endpoint** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating
+- [x] **Phase 11: Rich Health Endpoint** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating (completed 2026-07-08)
 - [ ] **Phase 12: HTTP Metrics Middleware & New Metric Families** - 7 new Prometheus metrics covering HTTP traffic, discovery, churn, AWS calls, startup
 - [ ] **Phase 13: Config Endpoint & Churn Protection** - Runtime config introspection and stale-cache preservation on AWS glitch
 - [ ] **Phase 14: OpenAPI/Swagger** - Machine-readable spec at /openapi.json, visual explorer at /swagger-ui
@@ -99,11 +99,11 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 **Plans**: 2 plans (wave 1 then wave 2)
 **Wave 1**
 
-- [ ] 11-01-PLAN.md — Extend AppState with refresh-outcome + uptime tracking; record outcome in main.rs refresh paths (HEALTH-01, HEALTH-02)
+- [x] 11-01-PLAN.md — Extend AppState with refresh-outcome + uptime tracking; record outcome in main.rs refresh paths (HEALTH-01, HEALTH-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11-02-PLAN.md — Rich /health handler + /health/live (always-200) + /health/ready routes with pure, unit-tested status logic (HEALTH-01..04)
+- [x] 11-02-PLAN.md — Rich /health handler + /health/live (always-200) + /health/ready routes with pure, unit-tested status logic (HEALTH-01..04)
 
 ### Phase 12: HTTP Metrics Middleware & New Metric Families
 
@@ -177,7 +177,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 8. Internal Metrics & Self-Registration | v0.2.0 | 3/3 | ✓ Complete | 2026-05-26 |
 | 9. CacheSnapshot Refactor & Module Cleanup | v0.3.0 | 3/3 | Complete    | 2026-07-06 |
 | 10. Error Hardening & Dependency Pinning | v0.3.0 | 2/2 | Complete    | 2026-07-07 |
-| 11. Rich Health Endpoint | v0.3.0 | 0/2 | Not started | - |
+| 11. Rich Health Endpoint | v0.3.0 | 2/2 | Complete    | 2026-07-08 |
 | 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 0/? | Not started | - |
 | 13. Config Endpoint & Churn Protection | v0.3.0 | 0/? | Not started | - |
 | 14. OpenAPI/Swagger | v0.3.0 | 0/? | Not started | - |
@@ -186,4 +186,4 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 ---
 
 *See STATE.md for current execution state*
-*Last updated: 2026-07-08 — Phase 11 planned (2 plans, waves 1-2)*
+*Last updated: 2026-07-08 — Phase 11 complete (HEALTH-01..04 verified, 170 tests)*
