@@ -62,9 +62,17 @@ fn build_snapshot(targets_aws: Vec<Target>, mode: Mode) -> CacheSnapshot {
 }
 
 #[derive(Clone)]
+pub struct RefreshOutcome {
+    pub success: bool,
+    pub timestamp_unix: u64,
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub snapshot: Arc<RwLock<CacheSnapshot>>,
     pub cache_ttl_seconds: u64,
+    pub started_at: std::time::Instant,
+    pub last_refresh_outcome: Arc<RwLock<Option<RefreshOutcome>>>,
     pub config: Arc<Config>,
     pub discovery: DiscoveryService,
     pub http_client: reqwest::Client,
@@ -94,6 +102,8 @@ impl AppState {
         Ok(Self {
             snapshot: Arc::new(RwLock::new(CacheSnapshot::default())),
             cache_ttl_seconds: config.refresh_interval.max(1),
+            started_at: std::time::Instant::now(),
+            last_refresh_outcome: Arc::new(RwLock::new(None)),
             config: Arc::new(config),
             discovery,
             http_client,
