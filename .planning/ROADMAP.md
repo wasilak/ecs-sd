@@ -97,8 +97,12 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
   4. `GET /health/ready` returns HTTP 200 when the cache contains at least one target, HTTP 503 when the cache is empty
 
 **Plans**: 2 plans (wave 1 then wave 2)
+**Wave 1**
 
 - [ ] 11-01-PLAN.md — Extend AppState with refresh-outcome + uptime tracking; record outcome in main.rs refresh paths (HEALTH-01, HEALTH-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 11-02-PLAN.md — Rich /health handler + /health/live (always-200) + /health/ready routes with pure, unit-tested status logic (HEALTH-01..04)
 
 ### Phase 12: HTTP Metrics Middleware & New Metric Families
