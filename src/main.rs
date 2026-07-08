@@ -24,7 +24,7 @@ use chitchat::{spawn_chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig
 use chitchat::transport::UdpTransport;
 use crate::cluster::{ClusterState, GossipProxyTarget};
 use crate::config::{Config, ClusterMode};
-use crate::state::AppState;
+use crate::state::{AppState, RefreshOutcome};
 
 fn require_region(region: Option<String>) -> Result<String, String> {
     match region {
@@ -131,9 +131,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 state.replace_cache_and_routing(targets_aws).await;
                 info!("Initial discovery complete");
                 publish_cache_to_gossip(&state).await;
+                *state.last_refresh_outcome.write().await = Some(RefreshOutcome {
+                    success: true,
+                    timestamp_unix: unix_now(),
+                });
             }
             Err(e) => {
                 warn!("Initial discovery failed — starting with empty cache: {}", e);
+                *state.last_refresh_outcome.write().await = Some(RefreshOutcome {
+                    success: false,
+                    timestamp_unix: unix_now(),
+                });
             }
         }
     } else {
@@ -252,6 +260,10 @@ fn spawn_background_refresh(
                                 .inc();
                             info!("discovery refresh complete: {} targets", target_count);
                             publish_cache_to_gossip(&state).await;
+                            *state.last_refresh_outcome.write().await = Some(RefreshOutcome {
+                                success: true,
+                                timestamp_unix: unix_now(),
+                            });
                         }
                         Err(error) => {
                             timer.observe_duration();
@@ -260,6 +272,10 @@ fn spawn_background_refresh(
                                 .with_label_values(&["error"])
                                 .inc();
                             warn!("discovery refresh failed: {}", error);
+                            *state.last_refresh_outcome.write().await = Some(RefreshOutcome {
+                                success: false,
+                                timestamp_unix: unix_now(),
+                            });
                         }
                     }
 
@@ -307,6 +323,13 @@ fn calculate_jittered_delay(base_interval: Duration, jitter_factor: f64) -> Dura
     let base_ms = base_interval.as_millis() as f64;
     let jittered_ms = (base_ms + (base_ms * jitter_factor)).max(1_000.0);
     Duration::from_millis(jittered_ms.round() as u64)
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 async fn shutdown_signal(shutdown_tx: watch::Sender<bool>) {
