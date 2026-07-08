@@ -42,7 +42,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 
 - [x] **Phase 9: CacheSnapshot Refactor & Module Cleanup** - Atomic cache replacement and correct module layering (hard prerequisite for phases 11, 12, 13) (completed 2026-07-06)
 - [x] **Phase 10: Error Hardening & Dependency Pinning** - Remove panics from production paths, harden outbound connections, pin SDK versions (completed 2026-07-07)
-- [ ] **Phase 11: Rich Health Endpoint & k8s Probes** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating
+- [ ] **Phase 11: Rich Health Endpoint** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating
 - [ ] **Phase 12: HTTP Metrics Middleware & New Metric Families** - 7 new Prometheus metrics covering HTTP traffic, discovery, churn, AWS calls, startup
 - [ ] **Phase 13: Config Endpoint & Churn Protection** - Runtime config introspection and stale-cache preservation on AWS glitch
 - [ ] **Phase 14: OpenAPI/Swagger** - Machine-readable spec at /openapi.json, visual explorer at /swagger-ui
@@ -84,9 +84,9 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 - [x] 10-01-PLAN.md — Runtime error hardening: remove unwrap panics from proxy/metrics handlers (QUAL-03), add reqwest connect_timeout + tcp_keepalive (QUAL-04)
 - [x] 10-02-PLAN.md — Dependency pinning + startup region validation: exact-pin aws-sdk-ec2/ecs (QUAL-07), hard-fail on missing AWS region (QUAL-08)
 
-### Phase 11: Rich Health Endpoint & k8s Probes
+### Phase 11: Rich Health Endpoint
 
-**Goal**: /health returns structured operational state; /health/live and /health/ready are safe for ALB and k8s probe wiring
+**Goal**: /health returns structured operational state; /health/live and /health/ready provide simple status checks
 **Depends on**: Phase 9
 **Requirements**: HEALTH-01, HEALTH-02, HEALTH-03, HEALTH-04
 **Success Criteria** (what must be TRUE):
@@ -96,7 +96,10 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
   3. `GET /health/live` always returns HTTP 200 with `{"status":"alive"}` — no cache or AWS state is checked
   4. `GET /health/ready` returns HTTP 200 when the cache contains at least one target, HTTP 503 when the cache is empty
 
-**Plans**: TBD
+**Plans**: 2 plans (wave 1 then wave 2)
+
+- [ ] 11-01-PLAN.md — Extend AppState with refresh-outcome + uptime tracking; record outcome in main.rs refresh paths (HEALTH-01, HEALTH-02)
+- [ ] 11-02-PLAN.md — Rich /health handler + /health/live (always-200) + /health/ready routes with pure, unit-tested status logic (HEALTH-01..04)
 
 ### Phase 12: HTTP Metrics Middleware & New Metric Families
 
@@ -170,7 +173,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 8. Internal Metrics & Self-Registration | v0.2.0 | 3/3 | ✓ Complete | 2026-05-26 |
 | 9. CacheSnapshot Refactor & Module Cleanup | v0.3.0 | 3/3 | Complete    | 2026-07-06 |
 | 10. Error Hardening & Dependency Pinning | v0.3.0 | 2/2 | Complete    | 2026-07-07 |
-| 11. Rich Health Endpoint & k8s Probes | v0.3.0 | 0/? | Not started | - |
+| 11. Rich Health Endpoint | v0.3.0 | 0/2 | Not started | - |
 | 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 0/? | Not started | - |
 | 13. Config Endpoint & Churn Protection | v0.3.0 | 0/? | Not started | - |
 | 14. OpenAPI/Swagger | v0.3.0 | 0/? | Not started | - |
@@ -179,4 +182,4 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 ---
 
 *See STATE.md for current execution state*
-*Last updated: 2026-07-06 — Phase 10 planned (2 plans, wave 1)*
+*Last updated: 2026-07-08 — Phase 11 planned (2 plans, waves 1-2)*
