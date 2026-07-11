@@ -74,6 +74,35 @@ pub(crate) fn per_cluster_target_counts(targets: &[Target]) -> HashMap<String, u
     counts
 }
 
+pub(crate) fn record_per_cluster_target_counts(
+    metrics: &crate::metrics::MetricsState,
+    configured_clusters: &[String],
+    old_targets: &[Target],
+    new_targets: &[Target],
+) {
+    let old_counts = per_cluster_target_counts(old_targets);
+    let new_counts = per_cluster_target_counts(new_targets);
+    let clusters_to_reset: HashSet<&str> = old_counts
+        .keys()
+        .map(String::as_str)
+        .chain(configured_clusters.iter().map(String::as_str))
+        .collect();
+
+    for cluster in clusters_to_reset {
+        metrics
+            .discovery_targets_per_cluster
+            .with_label_values(&[cluster])
+            .set(0.0);
+    }
+
+    for (cluster, count) in new_counts {
+        metrics
+            .discovery_targets_per_cluster
+            .with_label_values(&[&cluster])
+            .set(count as f64);
+    }
+}
+
 pub(crate) fn target_address_churn(old: &HashSet<String>, new: &HashSet<String>) -> (usize, usize) {
     (new.difference(old).count(), old.difference(new).count())
 }
@@ -149,25 +178,25 @@ impl AppState {
     }
 
     pub async fn replace_cache_and_record_metrics(&self, targets_aws: Vec<Target>) {
-        let old_addresses: HashSet<String> = {
+        let (old_addresses, old_targets): (HashSet<String>, Vec<Target>) = {
             let snap = self.snapshot.read().await;
-            snap.cache
+            let old_targets = snap.cache
                 .get(&MetadataLevel::Aws)
-                .map(|targets| {
-                    targets
-                        .iter()
-                        .flat_map(|target| target.targets.iter().cloned())
-                        .collect()
-                })
-                .unwrap_or_default()
+                .cloned()
+                .unwrap_or_default();
+            let old_addresses = old_targets
+                .iter()
+                .flat_map(|target| target.targets.iter().cloned())
+                .collect();
+            (old_addresses, old_targets)
         };
 
-        for (cluster, count) in per_cluster_target_counts(&targets_aws) {
-            self.metrics
-                .discovery_targets_per_cluster
-                .with_label_values(&[&cluster])
-                .set(count as f64);
-        }
+        record_per_cluster_target_counts(
+            &self.metrics,
+            &self.config.clusters,
+            &old_targets,
+            &targets_aws,
+        );
 
         let new_addresses: HashSet<String> = targets_aws
             .iter()
