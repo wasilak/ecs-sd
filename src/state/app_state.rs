@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, SystemTime};
@@ -61,6 +61,23 @@ fn build_snapshot(targets_aws: Vec<Target>, mode: Mode) -> CacheSnapshot {
     }
 }
 
+pub(crate) fn per_cluster_target_counts(targets: &[Target]) -> HashMap<String, usize> {
+    let mut counts = HashMap::new();
+    for target in targets {
+        let cluster = target
+            .labels
+            .get("__meta_ecs_cluster_name")
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        *counts.entry(cluster).or_insert(0) += target.targets.len();
+    }
+    counts
+}
+
+pub(crate) fn target_address_churn(old: &HashSet<String>, new: &HashSet<String>) -> (usize, usize) {
+    (new.difference(old).count(), old.difference(new).count())
+}
+
 #[derive(Clone)]
 pub struct RefreshOutcome {
     pub success: bool,
@@ -91,7 +108,14 @@ impl AppState {
         cluster: Option<Arc<crate::cluster::ClusterState>>,
         metrics: Arc<crate::metrics::MetricsState>,
     ) -> Result<Self, DiscoveryError> {
-        let discovery = DiscoveryService::new(ecs_client, ec2_client, sts_client, region).await?;
+        let discovery = DiscoveryService::new(
+            ecs_client,
+            ec2_client,
+            sts_client,
+            region,
+            Arc::clone(&metrics),
+        )
+        .await?;
         let http_client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .tcp_keepalive(Duration::from_secs(10))
@@ -122,6 +146,49 @@ impl AppState {
         // Single atomic write
         let mut snap = self.snapshot.write().await;
         *snap = new_snapshot;
+    }
+
+    pub async fn replace_cache_and_record_metrics(&self, targets_aws: Vec<Target>) {
+        let old_addresses: HashSet<String> = {
+            let snap = self.snapshot.read().await;
+            snap.cache
+                .get(&MetadataLevel::Aws)
+                .map(|targets| {
+                    targets
+                        .iter()
+                        .flat_map(|target| target.targets.iter().cloned())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        for (cluster, count) in per_cluster_target_counts(&targets_aws) {
+            self.metrics
+                .discovery_targets_per_cluster
+                .with_label_values(&[&cluster])
+                .set(count as f64);
+        }
+
+        let new_addresses: HashSet<String> = targets_aws
+            .iter()
+            .flat_map(|target| target.targets.iter().cloned())
+            .collect();
+
+        self.replace_cache_and_routing(targets_aws).await;
+
+        let (added, removed) = target_address_churn(&old_addresses, &new_addresses);
+        if added > 0 {
+            self.metrics
+                .discovery_target_churn_total
+                .with_label_values(&["added"])
+                .inc_by(added as f64);
+        }
+        if removed > 0 {
+            self.metrics
+                .discovery_target_churn_total
+                .with_label_values(&["removed"])
+                .inc_by(removed as f64);
+        }
     }
 }
 
