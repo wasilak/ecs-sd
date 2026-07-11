@@ -293,6 +293,53 @@ mod tests {
     }
 
     #[test]
+    fn discovery_targets_per_cluster_resets_dropped_cluster_to_zero() {
+        let metrics = crate::metrics::MetricsState::new().unwrap();
+        let configured_clusters = vec!["prod".to_string()];
+        let old_targets = vec![Target {
+            targets: vec!["10.0.0.1:8080".to_string()],
+            labels: {
+                let mut m = HashMap::new();
+                m.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
+                m
+            },
+        }];
+        let new_targets = vec![Target {
+            targets: vec!["10.0.0.2:8080".to_string()],
+            labels: {
+                let mut m = HashMap::new();
+                m.insert("__meta_ecs_cluster_name".to_string(), "dev".to_string());
+                m
+            },
+        }];
+
+        record_per_cluster_target_counts(
+            &metrics,
+            &configured_clusters,
+            &old_targets,
+            &new_targets,
+        );
+
+        let families = metrics.registry.gather();
+        let family = families
+            .iter()
+            .find(|f| f.name() == "ecs_sd_discovery_targets_per_cluster")
+            .unwrap();
+        let prod_metric = family
+            .get_metric()
+            .iter()
+            .find(|metric| {
+                metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == "cluster" && label.value() == "prod")
+            })
+            .unwrap();
+
+        assert_eq!(prod_metric.get_gauge().value(), 0.0);
+    }
+
+    #[test]
     fn target_address_churn_counts_added_and_removed_addresses() {
         let old = std::collections::HashSet::from(["a".to_string(), "b".to_string()]);
         let new = std::collections::HashSet::from(["b".to_string(), "c".to_string()]);
