@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use tokio::sync::RwLock;
@@ -125,6 +125,7 @@ pub struct AppState {
     pub cluster: Option<Arc<crate::cluster::ClusterState>>,
     pub metrics: Arc<crate::metrics::MetricsState>,
     pub last_manual_refresh_request: Arc<AtomicU64>,
+    pub startup_duration_recorded: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -164,6 +165,7 @@ impl AppState {
             cluster,
             metrics,
             last_manual_refresh_request: Arc::new(AtomicU64::new(0)),
+            startup_duration_recorded: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -218,6 +220,17 @@ impl AppState {
                 .discovery_target_churn_total
                 .with_label_values(&["removed"])
                 .inc_by(removed as f64);
+        }
+    }
+
+    /// Record the startup duration gauge exactly once, regardless of which cache
+    /// population path triggers it. Uses an atomic swap to ensure only the first
+    /// caller records the metric.
+    pub fn record_startup_duration_once(&self) {
+        if !self.startup_duration_recorded.swap(true, Ordering::SeqCst) {
+            self.metrics
+                .startup_duration_seconds
+                .set(self.started_at.elapsed().as_secs_f64());
         }
     }
 }
@@ -384,5 +397,74 @@ mod tests {
 
         assert_eq!(target_address_churn(&empty, &populated), (2, 0));
         assert_eq!(target_address_churn(&populated, &populated), (0, 0));
+    }
+
+    #[test]
+    fn record_startup_duration_once_sets_gauge_on_first_call() {
+        let metrics = crate::metrics::MetricsState::new().unwrap();
+        let started_at = std::time::Instant::now();
+        let recorded = Arc::new(AtomicBool::new(false));
+
+        // Simulate some elapsed time
+        std::thread::sleep(Duration::from_millis(10));
+
+        // First call: swap returns false → gauge is set
+        if !recorded.swap(true, Ordering::SeqCst) {
+            metrics
+                .startup_duration_seconds
+                .set(started_at.elapsed().as_secs_f64());
+        }
+
+        let families = metrics.registry.gather();
+        let family = families
+            .iter()
+            .find(|f| f.name() == "ecs_sd_startup_duration_seconds")
+            .expect("ecs_sd_startup_duration_seconds gauge must exist");
+        let gauge_value = family.get_metric()[0].get_gauge().value();
+        assert!(gauge_value > 0.0, "startup duration must be > 0, got {gauge_value}");
+    }
+
+    #[test]
+    fn record_startup_duration_once_does_not_overwrite_second_call() {
+        let metrics = crate::metrics::MetricsState::new().unwrap();
+        let started_at = std::time::Instant::now();
+        let recorded = Arc::new(AtomicBool::new(false));
+
+        std::thread::sleep(Duration::from_millis(10));
+
+        // First call
+        if !recorded.swap(true, Ordering::SeqCst) {
+            metrics
+                .startup_duration_seconds
+                .set(started_at.elapsed().as_secs_f64());
+        }
+
+        let families = metrics.registry.gather();
+        let family = families
+            .iter()
+            .find(|f| f.name() == "ecs_sd_startup_duration_seconds")
+            .unwrap();
+        let first_value = family.get_metric()[0].get_gauge().value();
+
+        std::thread::sleep(Duration::from_millis(10));
+
+        // Second call: swap returns true → gauge is NOT updated
+        if !recorded.swap(true, Ordering::SeqCst) {
+            metrics
+                .startup_duration_seconds
+                .set(started_at.elapsed().as_secs_f64());
+        }
+
+        let families = metrics.registry.gather();
+        let family = families
+            .iter()
+            .find(|f| f.name() == "ecs_sd_startup_duration_seconds")
+            .unwrap();
+        let second_value = family.get_metric()[0].get_gauge().value();
+
+        assert_eq!(
+            first_value, second_value,
+            "gauge must not be overwritten on second call"
+        );
     }
 }
