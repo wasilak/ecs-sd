@@ -118,7 +118,19 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
   4. When the target set changes between refreshes, `ecs_sd_discovery_target_churn_total` with added/removed labels increments by the delta
   5. `ecs_sd_startup_duration_seconds` gauge records the time from process start to first successful cache population
 
-**Plans**: TBD
+**Plans**: 4 plans (wave 1 -> wave 2 parallel -> wave 3)
+**Wave 1**
+
+- [ ] 12-01-PLAN.md -- Extend MetricsState with 7 new metric families + registration + tests (MET-08..MET-14)
+
+**Wave 2** *(parallel -- no file overlap; both blocked on Wave 1)*
+
+- [ ] 12-02-PLAN.md -- HTTP metrics Tower middleware via route_layer + MatchedPath (MET-08, MET-09)
+- [ ] 12-03-PLAN.md -- DiscoveryService AWS call counting + AppState replace_cache_and_record_metrics helper (MET-10, MET-11, MET-12)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 12-04-PLAN.md -- Wire record-metrics into all refresh paths + MET-14 startup + MET-13 follower syncs (MET-10, MET-11, MET-13, MET-14)
 
 ### Phase 13: Config Endpoint & Churn Protection
 
@@ -178,7 +190,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 9. CacheSnapshot Refactor & Module Cleanup | v0.3.0 | 3/3 | Complete    | 2026-07-06 |
 | 10. Error Hardening & Dependency Pinning | v0.3.0 | 2/2 | Complete    | 2026-07-07 |
 | 11. Rich Health Endpoint | v0.3.0 | 2/2 | Complete    | 2026-07-08 |
-| 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 0/? | Not started | - |
+| 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 0/4 | Planning    | - |
 | 13. Config Endpoint & Churn Protection | v0.3.0 | 0/? | Not started | - |
 | 14. OpenAPI/Swagger | v0.3.0 | 0/? | Not started | - |
 | 15. Test Coverage | v0.3.0 | 0/? | Not started | - |
@@ -186,4 +198,4 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 ---
 
 *See STATE.md for current execution state*
-*Last updated: 2026-07-08 — Phase 11 complete (HEALTH-01..04 verified, 170 tests)*
+*Last updated: 2026-07-11 — Phase 12 planned (4 plans, 3 waves, MET-08..MET-14)*
