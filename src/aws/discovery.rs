@@ -105,6 +105,7 @@ pub struct DiscoveryService {
     ec2_client: aws_sdk_ec2::Client,
     account_id: String,
     region: String,
+    metrics: std::sync::Arc<crate::metrics::MetricsState>,
 }
 
 #[derive(Clone)]
@@ -125,7 +126,9 @@ impl DiscoveryService {
         ec2_client: aws_sdk_ec2::Client,
         sts_client: aws_sdk_sts::Client,
         region: String,
+        metrics: std::sync::Arc<crate::metrics::MetricsState>,
     ) -> Result<Self, DiscoveryError> {
+        metrics.aws_api_calls_total.with_label_values(&["get_caller_identity"]).inc();
         let caller_identity = sts_client
             .get_caller_identity()
             .send()
@@ -142,6 +145,7 @@ impl DiscoveryService {
             ec2_client,
             account_id,
             region,
+            metrics,
         })
     }
 
@@ -188,6 +192,7 @@ impl DiscoveryService {
         let mut container_instance_to_ec2_id_cache: HashMap<String, String> = HashMap::new();
         let mut ec2_instance_cache: HashMap<String, Ec2InstanceInfo> = HashMap::new();
 
+        self.metrics.aws_api_calls_total.with_label_values(&["describe_clusters"]).inc();
         let clusters = self
             .ecs_client
             .describe_clusters()
@@ -211,6 +216,7 @@ impl DiscoveryService {
         debug!("Found {} services in cluster {}", service_arns.len(), cluster_name);
 
         for service_arn_chunk in service_arns.chunks(10) {
+            self.metrics.aws_api_calls_total.with_label_values(&["describe_services"]).inc();
             let services = self
                 .ecs_client
                 .describe_services()
@@ -230,6 +236,7 @@ impl DiscoveryService {
                 }
 
                 for task_chunk in task_arns.chunks(100) {
+                    self.metrics.aws_api_calls_total.with_label_values(&["describe_tasks"]).inc();
                     let tasks = self
                         .ecs_client
                         .describe_tasks()
@@ -471,6 +478,7 @@ impl DiscoveryService {
             return Ok(Some(task_definition));
         }
 
+        self.metrics.aws_api_calls_total.with_label_values(&["describe_task_definition"]).inc();
         let task_def_resp = self
             .ecs_client
             .describe_task_definition()
@@ -525,6 +533,7 @@ impl DiscoveryService {
                 req = req.next_token(token);
             }
 
+            self.metrics.aws_api_calls_total.with_label_values(&["list_services"]).inc();
             let resp = req
                 .send()
                 .await
@@ -558,6 +567,7 @@ impl DiscoveryService {
                 req = req.next_token(token);
             }
 
+            self.metrics.aws_api_calls_total.with_label_values(&["list_tasks"]).inc();
             let resp = req
                 .send()
                 .await
@@ -579,6 +589,7 @@ impl DiscoveryService {
     ) -> Result<(), DiscoveryError> {
         let missing = missing_container_instance_arns(cache, container_instance_arns);
         for chunk in missing.chunks(100) {
+            self.metrics.aws_api_calls_total.with_label_values(&["describe_container_instances"]).inc();
             let container_instances = self
                 .ecs_client
                 .describe_container_instances()
@@ -605,6 +616,7 @@ impl DiscoveryService {
         cache: &mut HashMap<String, Ec2InstanceInfo>,
     ) -> Result<(), DiscoveryError> {
         for chunk in ec2_instance_ids.chunks(100) {
+            self.metrics.aws_api_calls_total.with_label_values(&["describe_instances"]).inc();
             let instances = self
                 .ec2_client
                 .describe_instances()
@@ -665,6 +677,7 @@ impl DiscoveryService {
         cluster_arn: &str,
         container_instance_arn: &str,
     ) -> Result<Ec2InstanceInfo, DiscoveryError> {
+        self.metrics.aws_api_calls_total.with_label_values(&["describe_container_instances"]).inc();
         let container_instances = self
             .ecs_client
             .describe_container_instances()
@@ -681,6 +694,7 @@ impl DiscoveryService {
             .ok_or(DiscoveryError::NoContainerInstance)?
             .to_string();
 
+        self.metrics.aws_api_calls_total.with_label_values(&["describe_instances"]).inc();
         let instances = self
             .ec2_client
             .describe_instances()
