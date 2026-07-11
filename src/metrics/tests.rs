@@ -134,3 +134,125 @@ fn new_metric_families_are_registered_after_first_use() {
         );
     }
 }
+
+#[test]
+fn http_requests_total_countervec_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics
+        .http_requests_total
+        .with_label_values(&["/sd", "GET", "200"])
+        .inc();
+
+    let families = metrics.registry.gather();
+    let family = families
+        .iter()
+        .find(|f| f.name() == "ecs_sd_http_requests_total")
+        .unwrap();
+    assert_eq!(family.get_metric().len(), 1, "should have one HTTP request metric");
+}
+
+#[test]
+fn http_request_duration_histogramvec_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics
+        .http_request_duration_seconds
+        .with_label_values(&["/sd", "GET"])
+        .observe(0.005);
+
+    let families = metrics.registry.gather();
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_http_request_duration_seconds");
+    assert!(found, "http_request_duration_seconds metric should exist");
+}
+
+#[test]
+fn discovery_targets_per_cluster_gaugevec_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics
+        .discovery_targets_per_cluster
+        .with_label_values(&["prod"])
+        .set(3.0);
+
+    let families = metrics.registry.gather();
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_discovery_targets_per_cluster");
+    assert!(found, "discovery_targets_per_cluster metric should exist");
+}
+
+#[test]
+fn discovery_target_churn_countervec_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics
+        .discovery_target_churn_total
+        .with_label_values(&["added"])
+        .inc();
+    metrics
+        .discovery_target_churn_total
+        .with_label_values(&["removed"])
+        .inc();
+
+    let families = metrics.registry.gather();
+    let family = families
+        .iter()
+        .find(|f| f.name() == "ecs_sd_discovery_target_churn_total")
+        .unwrap();
+    assert_eq!(family.get_metric().len(), 2, "should have added and removed metrics");
+}
+
+#[test]
+fn aws_api_calls_countervec_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics
+        .aws_api_calls_total
+        .with_label_values(&["list_tasks"])
+        .inc();
+    metrics
+        .aws_api_calls_total
+        .with_label_values(&["describe_tasks"])
+        .inc();
+
+    let families = metrics.registry.gather();
+    let family = families
+        .iter()
+        .find(|f| f.name() == "ecs_sd_aws_api_calls_total")
+        .unwrap();
+    assert_eq!(family.get_metric().len(), 2, "should have two AWS operation metrics");
+}
+
+#[test]
+fn cache_follower_syncs_countervec_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics
+        .cache_follower_syncs_total
+        .with_label_values(&["success"])
+        .inc();
+    metrics
+        .cache_follower_syncs_total
+        .with_label_values(&["error"])
+        .inc();
+    metrics
+        .cache_follower_syncs_total
+        .with_label_values(&["skipped_leader"])
+        .inc();
+
+    let families = metrics.registry.gather();
+    let family = families
+        .iter()
+        .find(|f| f.name() == "ecs_sd_cache_follower_syncs_total")
+        .unwrap();
+    assert_eq!(family.get_metric().len(), 3, "should have three follower sync result metrics");
+}
+
+#[test]
+fn startup_duration_gauge_works() {
+    let metrics = MetricsState::new().unwrap();
+    metrics.startup_duration_seconds.set(1.5);
+
+    let families = metrics.registry.gather();
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_startup_duration_seconds");
+    assert!(found, "startup_duration_seconds metric should exist");
+}
