@@ -87,3 +87,50 @@ fn cluster_is_leader_gauge_works() {
     let found = families.iter().any(|f| f.name() == "ecs_sd_cluster_is_leader");
     assert!(found, "cluster_is_leader metric should exist");
 }
+
+#[test]
+fn new_metric_families_are_registered_after_first_use() {
+    let metrics = MetricsState::new().unwrap();
+
+    metrics
+        .http_requests_total
+        .with_label_values(&["/sd", "GET", "200"])
+        .inc();
+    metrics
+        .http_request_duration_seconds
+        .with_label_values(&["/sd", "GET"])
+        .observe(0.005);
+    metrics
+        .discovery_targets_per_cluster
+        .with_label_values(&["prod"])
+        .set(3.0);
+    metrics
+        .discovery_target_churn_total
+        .with_label_values(&["added"])
+        .inc();
+    metrics
+        .aws_api_calls_total
+        .with_label_values(&["list_tasks"])
+        .inc();
+    metrics
+        .cache_follower_syncs_total
+        .with_label_values(&["success"])
+        .inc();
+    metrics.startup_duration_seconds.set(1.5);
+
+    let families = metrics.registry.gather();
+    for name in [
+        "ecs_sd_http_requests_total",
+        "ecs_sd_http_request_duration_seconds",
+        "ecs_sd_discovery_targets_per_cluster",
+        "ecs_sd_discovery_target_churn_total",
+        "ecs_sd_aws_api_calls_total",
+        "ecs_sd_cache_follower_syncs_total",
+        "ecs_sd_startup_duration_seconds",
+    ] {
+        assert!(
+            families.iter().any(|f| f.name() == name),
+            "{name} metric should exist"
+        );
+    }
+}
