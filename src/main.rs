@@ -133,9 +133,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await {
             Ok(targets_aws) => {
                 state.replace_cache_and_record_metrics(targets_aws).await;
-                let startup_secs = state.started_at.elapsed().as_secs_f64();
-                state.metrics.startup_duration_seconds.set(startup_secs);
-                info!(startup_secs, "Initial discovery complete");
+                state.record_startup_duration_once();
+                info!("Initial discovery complete");
                 publish_cache_to_gossip(&state).await;
                 *state.last_refresh_outcome.write().await = Some(RefreshOutcome {
                     success: true,
@@ -321,6 +320,7 @@ async fn refresh_cache_once(state: &AppState) -> Result<usize, String> {
     let target_count = targets_aws.len();
 
     state.replace_cache_and_record_metrics(targets_aws).await;
+    state.record_startup_duration_once();
 
     Ok(target_count)
 }
@@ -407,6 +407,7 @@ fn spawn_follower_sync(
                         match serde_json::from_str::<Vec<crate::models::Target>>(&json) {
                             Ok(targets) => {
                                 state.replace_cache_and_record_metrics(targets).await;
+                                state.record_startup_duration_once();
                                 state.metrics
                                     .cache_follower_syncs_total
                                     .with_label_values(&["success"])
@@ -510,5 +511,18 @@ mod tests {
             !state_src.contains(&constructor_timer),
             "AppState::new must not start the MET-14 timer inside the constructor"
         );
+    }
+
+    #[test]
+    fn startup_duration_once_called_from_all_cache_population_paths() {
+        let main_src = include_str!("main.rs");
+        let sd_src = include_str!("handlers/sd.rs");
+
+        let main_count = main_src.matches("record_startup_duration_once()").count();
+        let sd_count = sd_src.matches("record_startup_duration_once()").count();
+
+        // 3 call sites + self-references in this test = at least 7 total in main.rs
+        assert!(main_count >= 3, "main.rs must have at least 3 record_startup_duration_once() calls (initial discovery, background refresh, follower sync), found {main_count}");
+        assert!(sd_count >= 1, "handlers/sd.rs must have at least 1 record_startup_duration_once() call (manual refresh), found {sd_count}");
     }
 }

@@ -178,6 +178,7 @@ pub async fn refresh_handler(
         Ok(targets_aws) => {
             let count = targets_aws.len();
             state.replace_cache_and_record_metrics(targets_aws).await;
+            state.record_startup_duration_once();
             info!("Discovery refresh complete: {} targets", count);
             Json(json!({
                 "status": "ok",
