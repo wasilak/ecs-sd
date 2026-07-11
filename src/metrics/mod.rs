@@ -1,4 +1,4 @@
-use prometheus::{Registry, Counter, Gauge, Histogram, HistogramOpts, CounterVec, Opts};
+use prometheus::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, Opts, Registry};
 
 /// Owns the Prometheus Registry and all metric instances.
 /// Stored in AppState; metrics are registered once at startup.
@@ -17,6 +17,14 @@ pub struct MetricsState {
     // Cluster metrics (MET-05)
     pub cluster_nodes: Gauge,
     pub cluster_is_leader: Gauge,
+    // New metric families (MET-08..MET-14)
+    pub http_requests_total: CounterVec,
+    pub http_request_duration_seconds: HistogramVec,
+    pub discovery_targets_per_cluster: GaugeVec,
+    pub discovery_target_churn_total: CounterVec,
+    pub aws_api_calls_total: CounterVec,
+    pub cache_follower_syncs_total: CounterVec,
+    pub startup_duration_seconds: Gauge,
 }
 
 impl MetricsState {
@@ -81,6 +89,49 @@ impl MetricsState {
             "Whether this node is the leader (1=yes, 0=no)"
         )?;
 
+        // New metric families (MET-08..MET-14)
+        let http_requests_total = CounterVec::new(
+            Opts::new("ecs_sd_http_requests_total", "Total HTTP requests"),
+            &["endpoint", "method", "status_code"]
+        )?;
+        let http_request_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "ecs_sd_http_request_duration_seconds",
+                "HTTP request duration in seconds"
+            )
+            .buckets(prometheus::exponential_buckets(0.001, 2.0, 14).unwrap()),
+            &["endpoint", "method"]
+        )?;
+        let discovery_targets_per_cluster = GaugeVec::new(
+            Opts::new(
+                "ecs_sd_discovery_targets_per_cluster",
+                "Targets per ECS cluster"
+            ),
+            &["cluster"]
+        )?;
+        let discovery_target_churn_total = CounterVec::new(
+            Opts::new(
+                "ecs_sd_discovery_target_churn_total",
+                "Target churn since last refresh"
+            ),
+            &["change"]
+        )?;
+        let aws_api_calls_total = CounterVec::new(
+            Opts::new("ecs_sd_aws_api_calls_total", "AWS SDK API calls"),
+            &["operation"]
+        )?;
+        let cache_follower_syncs_total = CounterVec::new(
+            Opts::new(
+                "ecs_sd_cache_follower_syncs_total",
+                "Follower cache sync outcomes"
+            ),
+            &["result"]
+        )?;
+        let startup_duration_seconds = Gauge::new(
+            "ecs_sd_startup_duration_seconds",
+            "Seconds from process start to first successful cache population"
+        )?;
+
         // Register all metrics
         registry.register(Box::new(discovery_duration.clone()))?;
         registry.register(Box::new(discovery_targets.clone()))?;
@@ -91,6 +142,13 @@ impl MetricsState {
         registry.register(Box::new(proxy_duration.clone()))?;
         registry.register(Box::new(cluster_nodes.clone()))?;
         registry.register(Box::new(cluster_is_leader.clone()))?;
+        registry.register(Box::new(http_requests_total.clone()))?;
+        registry.register(Box::new(http_request_duration_seconds.clone()))?;
+        registry.register(Box::new(discovery_targets_per_cluster.clone()))?;
+        registry.register(Box::new(discovery_target_churn_total.clone()))?;
+        registry.register(Box::new(aws_api_calls_total.clone()))?;
+        registry.register(Box::new(cache_follower_syncs_total.clone()))?;
+        registry.register(Box::new(startup_duration_seconds.clone()))?;
 
         Ok(Self {
             registry,
@@ -103,6 +161,13 @@ impl MetricsState {
             proxy_duration,
             cluster_nodes,
             cluster_is_leader,
+            http_requests_total,
+            http_request_duration_seconds,
+            discovery_targets_per_cluster,
+            discovery_target_churn_total,
+            aws_api_calls_total,
+            cache_follower_syncs_total,
+            startup_duration_seconds,
         })
     }
 }
