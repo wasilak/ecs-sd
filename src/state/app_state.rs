@@ -186,4 +186,59 @@ mod tests {
             "routing_table size must match input count"
         );
     }
+
+    #[test]
+    fn per_cluster_target_counts_groups_by_cluster_and_counts_addresses() {
+        let targets = vec![
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: {
+                    let mut m = HashMap::new();
+                    m.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
+                    m
+                },
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: {
+                    let mut m = HashMap::new();
+                    m.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
+                    m
+                },
+            },
+        ];
+
+        let counts = per_cluster_target_counts(&targets);
+
+        assert_eq!(counts.get("prod"), Some(&2));
+    }
+
+    #[test]
+    fn per_cluster_target_counts_buckets_missing_cluster_as_unknown() {
+        let targets = vec![Target {
+            targets: vec!["10.0.0.1:8080".to_string()],
+            labels: HashMap::new(),
+        }];
+
+        let counts = per_cluster_target_counts(&targets);
+
+        assert_eq!(counts.get("unknown"), Some(&1));
+    }
+
+    #[test]
+    fn target_address_churn_counts_added_and_removed_addresses() {
+        let old = std::collections::HashSet::from(["a".to_string(), "b".to_string()]);
+        let new = std::collections::HashSet::from(["b".to_string(), "c".to_string()]);
+
+        assert_eq!(target_address_churn(&old, &new), (1, 1));
+    }
+
+    #[test]
+    fn target_address_churn_counts_initial_population_and_no_change() {
+        let empty = std::collections::HashSet::new();
+        let populated = std::collections::HashSet::from(["a".to_string(), "b".to_string()]);
+
+        assert_eq!(target_address_churn(&empty, &populated), (2, 0));
+        assert_eq!(target_address_churn(&populated, &populated), (0, 0));
+    }
 }
