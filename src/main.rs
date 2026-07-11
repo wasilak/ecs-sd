@@ -3,6 +3,7 @@ mod config;
 mod state;
 mod aws;
 mod models;
+mod middleware;
 mod routes;
 mod handlers;
 mod cluster;
