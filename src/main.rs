@@ -157,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build router
     let app = Router::new()
-        .merge(routes::create_routes())
+        .merge(routes::create_routes(state.clone()))
         .with_state(state.clone());
 
     // Parse bind address
