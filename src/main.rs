@@ -489,4 +489,22 @@ mod tests {
             assert!(!sd_src.contains(&token), "handlers/sd.rs must not contain {token}");
         }
     }
+
+    #[test]
+    fn app_state_new_accepts_process_start_instant() {
+        let state_src = include_str!("state/app_state.rs");
+
+        assert!(
+            state_src.contains("metrics: Arc<crate::metrics::MetricsState>,\n        started_at: std::time::Instant,"),
+            "AppState::new must accept caller-provided process start Instant"
+        );
+        assert!(
+            state_src.contains("started_at,\n            last_refresh_outcome"),
+            "AppState::new must store the injected Instant directly"
+        );
+        assert!(
+            !state_src.contains("started_at: std::time::Instant::now()"),
+            "AppState::new must not start the MET-14 timer inside the constructor"
+        );
+    }
 }
