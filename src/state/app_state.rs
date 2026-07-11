@@ -136,6 +136,7 @@ impl AppState {
         region: String,
         cluster: Option<Arc<crate::cluster::ClusterState>>,
         metrics: Arc<crate::metrics::MetricsState>,
+        started_at: std::time::Instant,
     ) -> Result<Self, DiscoveryError> {
         let discovery = DiscoveryService::new(
             ecs_client,
@@ -155,7 +156,7 @@ impl AppState {
         Ok(Self {
             snapshot: Arc::new(RwLock::new(CacheSnapshot::default())),
             cache_ttl_seconds: config.refresh_interval.max(1),
-            started_at: std::time::Instant::now(),
+            started_at,
             last_refresh_outcome: Arc::new(RwLock::new(None)),
             config: Arc::new(config),
             discovery,

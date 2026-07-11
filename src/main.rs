@@ -40,6 +40,8 @@ fn require_region(region: Option<String>) -> Result<String, String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let process_started_at = std::time::Instant::now();
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .json()
@@ -113,6 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         region,
         cluster,
         metrics.clone(),
+        process_started_at,
     )
     .await
     .map_err(|e| {
@@ -502,8 +505,9 @@ mod tests {
             state_src.contains("started_at,\n            last_refresh_outcome"),
             "AppState::new must store the injected Instant directly"
         );
+        let constructor_timer = ["started_at: std::time::Instant", "now()"].join("::");
         assert!(
-            !state_src.contains("started_at: std::time::Instant::now()"),
+            !state_src.contains(&constructor_timer),
             "AppState::new must not start the MET-14 timer inside the constructor"
         );
     }
