@@ -129,8 +129,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Performing initial discovery...");
         match state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await {
             Ok(targets_aws) => {
-                state.replace_cache_and_routing(targets_aws).await;
-                info!("Initial discovery complete");
+                state.replace_cache_and_record_metrics(targets_aws).await;
+                let startup_secs = state.started_at.elapsed().as_secs_f64();
+                state.metrics.startup_duration_seconds.set(startup_secs);
+                info!(startup_secs, "Initial discovery complete");
                 publish_cache_to_gossip(&state).await;
                 *state.last_refresh_outcome.write().await = Some(RefreshOutcome {
                     success: true,
@@ -315,7 +317,7 @@ async fn refresh_cache_once(state: &AppState) -> Result<usize, String> {
         })?;
     let target_count = targets_aws.len();
 
-    state.replace_cache_and_routing(targets_aws).await;
+    state.replace_cache_and_record_metrics(targets_aws).await;
 
     Ok(target_count)
 }
@@ -391,14 +393,28 @@ fn spawn_follower_sync(
             tokio::select! {
                 _ = interval.tick() => {
                     if *shutdown_rx.borrow() { break; }
-                    if cluster.is_leader().await { continue; }
+                    if cluster.is_leader().await {
+                        state.metrics
+                            .cache_follower_syncs_total
+                            .with_label_values(&["skipped_leader"])
+                            .inc();
+                        continue;
+                    }
                     if let Some(json) = cluster.read_leader_cache().await {
                         match serde_json::from_str::<Vec<crate::models::Target>>(&json) {
                             Ok(targets) => {
-                                state.replace_cache_and_routing(targets).await;
+                                state.replace_cache_and_record_metrics(targets).await;
+                                state.metrics
+                                    .cache_follower_syncs_total
+                                    .with_label_values(&["success"])
+                                    .inc();
                                 tracing::debug!("follower cache synced from gossip");
                             }
                             Err(e) => {
+                                state.metrics
+                                    .cache_follower_syncs_total
+                                    .with_label_values(&["error"])
+                                    .inc();
                                 tracing::warn!("follower: malformed gossip cache JSON: {}", e);
                             }
                         }
