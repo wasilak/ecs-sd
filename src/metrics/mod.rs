@@ -92,7 +92,7 @@ impl MetricsState {
         // New metric families (MET-08..MET-14)
         let http_requests_total = CounterVec::new(
             Opts::new("ecs_sd_http_requests_total", "Total HTTP requests"),
-            &["endpoint", "method", "status_code"]
+            &["endpoint", "method", "status"]
         )?;
         let http_request_duration_seconds = HistogramVec::new(
             HistogramOpts::new(

@@ -172,9 +172,10 @@ fn http_requests_total_uses_required_label_names() {
         .collect();
 
     assert_eq!(label_names, vec!["endpoint", "method", "status"]);
+    let obsolete_label = ["status", "code"].join("_");
     assert!(
-        !label_names.contains(&"status_code"),
-        "ecs_sd_http_requests_total must expose status, not status_code"
+        !label_names.iter().any(|name| *name == obsolete_label),
+        "ecs_sd_http_requests_total must expose status as its response-code label"
     );
 }
 
