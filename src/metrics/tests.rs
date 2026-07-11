@@ -152,6 +152,33 @@ fn http_requests_total_countervec_works() {
 }
 
 #[test]
+fn http_requests_total_uses_required_label_names() {
+    let metrics = MetricsState::new().unwrap();
+    metrics
+        .http_requests_total
+        .with_label_values(&["/sd", "GET", "200"])
+        .inc();
+
+    let families = metrics.registry.gather();
+    let family = families
+        .iter()
+        .find(|f| f.name() == "ecs_sd_http_requests_total")
+        .unwrap();
+    let metric = family.get_metric().first().unwrap();
+    let label_names: Vec<&str> = metric
+        .get_label()
+        .iter()
+        .map(|label| label.get_name())
+        .collect();
+
+    assert_eq!(label_names, vec!["endpoint", "method", "status"]);
+    assert!(
+        !label_names.contains(&"status_code"),
+        "ecs_sd_http_requests_total must expose status, not status_code"
+    );
+}
+
+#[test]
 fn http_request_duration_histogramvec_works() {
     let metrics = MetricsState::new().unwrap();
     metrics
