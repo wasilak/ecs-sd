@@ -177,7 +177,7 @@ pub async fn refresh_handler(
     match state.discovery.discover_all_clusters(&clusters, state.config.mode.clone()).await {
         Ok(targets_aws) => {
             let count = targets_aws.len();
-            state.replace_cache_and_routing(targets_aws).await;
+            state.replace_cache_and_record_metrics(targets_aws).await;
             info!("Discovery refresh complete: {} targets", count);
             Json(json!({
                 "status": "ok",
