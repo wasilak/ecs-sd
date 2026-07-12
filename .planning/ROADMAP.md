@@ -173,7 +173,14 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
   3. Each endpoint entry in the spec documents its query parameters, response schemas, and HTTP status codes
   4. All response model structs (Target, ProxyTarget, health response, config response) appear in the spec's components/schemas section
 
-**Plans**: TBD
+**Plans**: 2 plans (wave 1 then wave 2)
+**Wave 1**
+
+- [ ] 14-01-PLAN.md — Add utoipa deps, ToSchema derives on all model/config types, create ApiDoc struct, add #[utoipa::path] annotations to all 8 handlers, merge SwaggerUi (API-01, API-02, API-03, API-04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 14-02-PLAN.md — OpenAPI spec validation unit test verifying version, paths, and schemas (API-03, API-04)
 
 ### Phase 15: Test Coverage
 
@@ -207,7 +214,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 11. Rich Health Endpoint | v0.3.0 | 2/2 | Complete    | 2026-07-08 |
 | 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 5/5 | Complete   | 2026-07-11 |
 | 13. Config Endpoint & Churn Protection | v0.3.0 | 2/2 | Complete   | 2026-07-12 |
-| 14. OpenAPI/Swagger | v0.3.0 | 0/? | Not started | - |
+| 14. OpenAPI/Swagger | v0.3.0 | 0/2 | Not started | - |
 | 15. Test Coverage | v0.3.0 | 0/? | Not started | - |
 
 ---
