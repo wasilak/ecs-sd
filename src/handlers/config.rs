@@ -45,3 +45,114 @@ pub async fn config_handler(
 ) -> (StatusCode, Json<ConfigResponse>) {
     (StatusCode::OK, Json(ConfigResponse::from(state.config.as_ref())))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ClusterMode, Mode};
+    use crate::models::MetadataLevel;
+
+    fn sample_config_response() -> ConfigResponse {
+        ConfigResponse {
+            clusters: vec!["prod".to_string()],
+            listen: "0.0.0.0:8080".to_string(),
+            refresh_interval: 60,
+            metadata_level: MetadataLevel::Task,
+            mode: Mode::Discovery,
+            cluster_mode: ClusterMode::Standalone,
+            gossip_port: 8081,
+            node_id: "localhost:8081".to_string(),
+            metrics_port: None,
+            refresh_token_set: false,
+            refresh_min_interval: 30,
+            proxy_forward_sensitive_headers: false,
+            max_target_drop_ratio: 0.0,
+        }
+    }
+
+    #[test]
+    fn config_response_serializes_all_expected_keys() {
+        let response = sample_config_response();
+        let json = serde_json::to_value(&response).unwrap();
+
+        let expected_keys = [
+            "clusters",
+            "listen",
+            "refresh_interval",
+            "metadata_level",
+            "mode",
+            "cluster_mode",
+            "gossip_port",
+            "node_id",
+            "metrics_port",
+            "refresh_token_set",
+            "refresh_min_interval",
+            "proxy_forward_sensitive_headers",
+            "max_target_drop_ratio",
+        ];
+
+        for key in &expected_keys {
+            assert!(
+                json.get(*key).is_some(),
+                "missing expected key: {}",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn config_response_hides_refresh_token() {
+        let response = sample_config_response();
+        let json = serde_json::to_value(&response).unwrap();
+
+        assert!(
+            json.get("refresh_token").is_none(),
+            "refresh_token must NOT appear in serialized output"
+        );
+        assert!(
+            json.get("refresh_token_set").is_some(),
+            "refresh_token_set must appear in serialized output"
+        );
+    }
+
+    #[test]
+    fn config_response_from_config_masks_secret() {
+        let config = crate::config::Config {
+            refresh_token: Some("super-secret".to_string()),
+            ..crate::config::Config::default()
+        };
+        let response = ConfigResponse::from(&config);
+        let json = serde_json::to_value(&response).unwrap();
+
+        assert_eq!(json.get("refresh_token_set").and_then(|v| v.as_bool()), Some(true));
+        assert!(
+            json.get("refresh_token").is_none(),
+            "refresh_token must NOT appear in serialized output"
+        );
+    }
+
+    #[test]
+    fn config_response_from_config_no_token() {
+        let config = crate::config::Config {
+            refresh_token: None,
+            ..crate::config::Config::default()
+        };
+        let response = ConfigResponse::from(&config);
+
+        assert_eq!(response.refresh_token_set, false);
+    }
+
+    #[test]
+    fn config_response_includes_max_target_drop_ratio() {
+        let response = ConfigResponse {
+            max_target_drop_ratio: 0.75,
+            ..sample_config_response()
+        };
+        let json = serde_json::to_value(&response).unwrap();
+
+        assert_eq!(
+            json.get("max_target_drop_ratio").and_then(|v| v.as_f64()),
+            Some(0.75)
+        );
+    }
+}
