@@ -47,7 +47,7 @@
 
 ### Config Endpoint
 
-- [ ] **CONF-07**: `GET /config` returns the effective runtime configuration as JSON — all fields from `Config` are included; `refresh_token` is replaced with `refresh_token_set: bool` (presence indicator only, value never exposed)
+- [x] **CONF-07**: `GET /config` returns the effective runtime configuration as JSON — all fields from `Config` are included; `refresh_token` is replaced with `refresh_token_set: bool` (presence indicator only, value never exposed)
 
 ### Target Churn Protection
 
@@ -107,7 +107,7 @@
 | MET-12 | Phase 12 | Complete |
 | MET-13 | Phase 12 | Complete |
 | MET-14 | Phase 12 | Gap closure planned |
-| CONF-07 | Phase 13 | Pending |
+| CONF-07 | Phase 13 | Complete |
 | CHURN-01 | Phase 13 | ✓ Complete |
 | API-01 | Phase 14 | Pending |
 | API-02 | Phase 14 | Pending |

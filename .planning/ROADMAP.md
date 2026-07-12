@@ -44,7 +44,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 - [x] **Phase 10: Error Hardening & Dependency Pinning** - Remove panics from production paths, harden outbound connections, pin SDK versions (completed 2026-07-07)
 - [x] **Phase 11: Rich Health Endpoint** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating (completed 2026-07-08)
 - [x] **Phase 12: HTTP Metrics Middleware & New Metric Families** - 7 new Prometheus metrics covering HTTP traffic, discovery, churn, AWS calls, startup (gap closure planned) (completed 2026-07-11)
-- [ ] **Phase 13: Config Endpoint & Churn Protection** - Runtime config introspection and stale-cache preservation on AWS glitch
+- [x] **Phase 13: Config Endpoint & Churn Protection** - Runtime config introspection and stale-cache preservation on AWS glitch (completed 2026-07-12)
 - [ ] **Phase 14: OpenAPI/Swagger** - Machine-readable spec at /openapi.json, visual explorer at /swagger-ui
 - [ ] **Phase 15: Test Coverage** - HTTP handler integration tests and mocked AWS discovery tests
 
@@ -159,7 +159,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 13-02-PLAN.md — Config endpoint: GET /config handler, ConfigResponse struct with secret masking, route registration (CONF-07)
+- [x] 13-02-PLAN.md — Config endpoint: GET /config handler, ConfigResponse struct with secret masking, route registration (CONF-07)
 
 ### Phase 14: OpenAPI/Swagger
 
@@ -206,7 +206,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 10. Error Hardening & Dependency Pinning | v0.3.0 | 2/2 | Complete    | 2026-07-07 |
 | 11. Rich Health Endpoint | v0.3.0 | 2/2 | Complete    | 2026-07-08 |
 | 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 5/5 | Complete   | 2026-07-11 |
-| 13. Config Endpoint & Churn Protection | v0.3.0 | 0/2 | Not started | - |
+| 13. Config Endpoint & Churn Protection | v0.3.0 | 2/2 | Complete   | 2026-07-12 |
 | 14. OpenAPI/Swagger | v0.3.0 | 0/? | Not started | - |
 | 15. Test Coverage | v0.3.0 | 0/? | Not started | - |
 
