@@ -3,8 +3,16 @@ use prometheus::{TextEncoder, Encoder};
 
 use crate::state::AppState;
 
-/// Handler for GET /metrics — returns Prometheus text exposition format.
-/// Updates dynamic gauges (cache_age, cluster metrics) before gathering.
+/// Get Prometheus metrics in text exposition format
+#[utoipa::path(
+    get,
+    path = "/metrics",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Prometheus metrics",
+         content_type = "text/plain; version=0.0.4")
+    )
+)]
 pub async fn metrics_handler(State(state): State<AppState>) -> Response {
     // Update cache age gauge
     let last_refresh = { let snap = state.snapshot.read().await; snap.last_refresh };

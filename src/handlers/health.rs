@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::state::{AppState, RefreshOutcome};
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct HealthResponse {
     pub status: &'static str,
     pub version: &'static str,
@@ -13,21 +13,21 @@ pub struct HealthResponse {
     pub last_refresh: LastRefreshHealth,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CacheHealth {
     pub targets: usize,
     pub age_seconds: u64,
     pub state: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct ClusterHealth {
     pub mode: &'static str,
     pub nodes: usize,
     pub is_leader: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct LastRefreshHealth {
     pub status: &'static str,
     pub timestamp: Option<u64>,
@@ -63,6 +63,19 @@ fn determine_readiness_status(target_count: usize) -> (&'static str, StatusCode)
     }
 }
 
+/// Get comprehensive health status
+///
+/// Returns service health including cache state, cluster info, and last refresh outcome.
+/// Returns HTTP 503 when cache is empty AND last refresh failed (HEALTH-02).
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is healthy or degraded", body = HealthResponse),
+        (status = 503, description = "Service is starting — cache empty and last refresh failed", body = HealthResponse)
+    )
+)]
 pub async fn health_handler(
     State(state): State<AppState>,
 ) -> (StatusCode, Json<HealthResponse>) {
@@ -137,12 +150,31 @@ pub async fn health_handler(
     (http_status, Json(response))
 }
 
-/// Liveness probe handler — always returns 200 {"status":"alive"} (HEALTH-03).
-/// Reads no state: AWS outages cannot cause eviction via this endpoint.
+/// Liveness probe — always returns 200
+///
+/// Reads no state. AWS outages cannot cause eviction via this endpoint (HEALTH-03).
+#[utoipa::path(
+    get,
+    path = "/health/live",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is alive", body = serde_json::Value)
+    )
+)]
 pub async fn health_live_handler() -> Json<serde_json::Value> {
     Json(serde_json::json!({"status": "alive"}))
 }
 
+/// Readiness probe — returns 200 when targets exist, 503 otherwise (HEALTH-04)
+#[utoipa::path(
+    get,
+    path = "/health/ready",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is ready"),
+        (status = 503, description = "Service is not ready — no targets in cache")
+    )
+)]
 pub async fn health_ready_handler(
     State(state): State<AppState>,
 ) -> (StatusCode, Json<serde_json::Value>) {

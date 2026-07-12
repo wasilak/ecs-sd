@@ -68,6 +68,25 @@ pub(crate) fn parse_scrape_timeout(headers: &HeaderMap) -> Duration {
         .unwrap_or(DEFAULT)
 }
 
+/// Proxy a Prometheus scrape request to the resolved upstream target
+///
+/// Requires proxy mode to be enabled. The route ID is a UUID resolved
+/// from the ECS task ARN, container name, and container ID.
+#[utoipa::path(
+    get,
+    path = "/proxy/{id}/{path}",
+    tag = "proxy",
+    params(
+        ("id" = String, Path, description = "Route UUID for the proxy target"),
+        ("path" = String, Path, description = "Upstream path to proxy (e.g., 'metrics')"),
+    ),
+    responses(
+        (status = 200, description = "Proxied upstream response"),
+        (status = 400, description = "Invalid route UUID"),
+        (status = 404, description = "Route not found or proxy mode not enabled"),
+        (status = 502, description = "Upstream unreachable"),
+    )
+)]
 pub async fn proxy_handler(
     State(state): State<AppState>,
     Path((id, path)): Path<(String, String)>,

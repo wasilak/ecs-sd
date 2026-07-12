@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::state::AppState;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct ConfigResponse {
     pub clusters: Vec<String>,
     pub listen: String,
@@ -40,6 +40,15 @@ impl From<&crate::config::Config> for ConfigResponse {
     }
 }
 
+/// Get service configuration
+#[utoipa::path(
+    get,
+    path = "/config",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Service configuration", body = ConfigResponse)
+    )
+)]
 pub async fn config_handler(
     State(state): State<AppState>,
 ) -> (StatusCode, Json<ConfigResponse>) {

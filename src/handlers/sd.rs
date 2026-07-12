@@ -7,7 +7,7 @@ use axum::{
 use crate::config::Mode;
 use crate::models::ProxyTarget;
 use crate::state::AppState;
-use crate::models::{filter_labels_by_level, FilterMode, SdQueryParams, Target};
+use crate::models::{filter_labels_by_level, FilterMode, MetadataLevel, SdQueryParams, Target};
 use serde_json::json;
 use std::sync::atomic::Ordering;
 use tracing::{debug, info, warn};
@@ -34,6 +34,31 @@ fn build_proxy_sd_target(
     }
 }
 
+/// List discovery targets with optional filtering
+///
+/// Returns ECS service discovery targets in Prometheus SD format.
+/// In proxy mode, targets point to this service's public address with
+/// `__metrics_path__` routing through the proxy endpoint.
+#[utoipa::path(
+    get,
+    path = "/sd",
+    tag = "discovery",
+    params(
+        ("cluster" = Vec<String>, Query, description = "Filter by cluster name(s); repeatable: ?cluster=a&cluster=b"),
+        ("service" = Vec<String>, Query, description = "Filter by ECS service name(s); repeatable"),
+        ("family" = Vec<String>, Query, description = "Filter by task definition family; repeatable"),
+        ("level" = Option<MetadataLevel>, Query, description = "Metadata level override: container, task, service, cluster, aws"),
+        ("filter_mode" = Option<FilterMode>, Query, description = "AND (default) or OR filter logic for combined filters"),
+        ("tag_{name}" = Option<String>, Query, description = "Filter by ECS tag; e.g., tag_env=prod"),
+    ),
+    responses(
+        (status = 200, description = "Discovery targets", body = Vec<Target>,
+         headers(
+             ("X-Cache-Age" = String, description = "Cache age in seconds"),
+             ("X-Cache-State" = String, description = "Cache freshness: 'fresh' or 'stale'")
+         ))
+    )
+)]
 pub async fn sd_handler(
     State(state): State<AppState>,
     Query(mut params): Query<SdQueryParams>,
@@ -139,6 +164,21 @@ fn refresh_retry_after_seconds(last_request_secs: u64, now_secs: u64, min_interv
     }
 }
 
+/// Trigger a manual discovery refresh
+///
+/// Forces an immediate ECS API call to re-discover all targets.
+/// Requires a valid `X-Refresh-Token` header. Rate limited by `refresh_min_interval`.
+#[utoipa::path(
+    post,
+    path = "/sd/refresh",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Refresh succeeded", body = serde_json::Value),
+        (status = 401, description = "Missing or invalid refresh token", body = serde_json::Value),
+        (status = 429, description = "Rate limited", body = serde_json::Value),
+        (status = 503, description = "All clusters unreachable", body = serde_json::Value),
+    )
+)]
 pub async fn refresh_handler(
     State(state): State<AppState>,
     headers: HeaderMap,

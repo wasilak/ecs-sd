@@ -9,14 +9,14 @@ use clap::Parser;
 use crate::error::ConfigError;
 use crate::models::MetadataLevel;
 
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, clap::ValueEnum, utoipa::ToSchema)]
 pub enum ClusterMode {
     #[default]
     Standalone,
     Cluster,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, clap::ValueEnum, utoipa::ToSchema)]
 pub enum Mode {
     #[default]
     Discovery,

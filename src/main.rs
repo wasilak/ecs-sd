@@ -1,5 +1,6 @@
 mod error;
 mod config;
+mod openapi;
 mod state;
 mod aws;
 mod models;
@@ -162,6 +163,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build router
     let app = Router::new()
         .merge(routes::create_routes(state.clone()))
+        .merge(
+            utoipa_swagger_ui::SwaggerUi::new("/swagger-ui")
+                .url("/openapi.json", {
+                    use utoipa::OpenApi;
+                    crate::openapi::ApiDoc::openapi()
+                })
+        )
         .with_state(state.clone());
 
     // Parse bind address
