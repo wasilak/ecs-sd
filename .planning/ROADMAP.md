@@ -43,7 +43,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 - [x] **Phase 9: CacheSnapshot Refactor & Module Cleanup** - Atomic cache replacement and correct module layering (hard prerequisite for phases 11, 12, 13) (completed 2026-07-06)
 - [x] **Phase 10: Error Hardening & Dependency Pinning** - Remove panics from production paths, harden outbound connections, pin SDK versions (completed 2026-07-07)
 - [x] **Phase 11: Rich Health Endpoint** - Structured /health JSON, /health/live always-200, /health/ready for readiness gating (completed 2026-07-08)
-- [ ] **Phase 12: HTTP Metrics Middleware & New Metric Families** - 7 new Prometheus metrics covering HTTP traffic, discovery, churn, AWS calls, startup
+- [x] **Phase 12: HTTP Metrics Middleware & New Metric Families** - 7 new Prometheus metrics covering HTTP traffic, discovery, churn, AWS calls, startup (gap closure planned) (completed 2026-07-11)
 - [ ] **Phase 13: Config Endpoint & Churn Protection** - Runtime config introspection and stale-cache preservation on AWS glitch
 - [ ] **Phase 14: OpenAPI/Swagger** - Machine-readable spec at /openapi.json, visual explorer at /swagger-ui
 - [ ] **Phase 15: Test Coverage** - HTTP handler integration tests and mocked AWS discovery tests
@@ -118,19 +118,27 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
   4. When the target set changes between refreshes, `ecs_sd_discovery_target_churn_total` with added/removed labels increments by the delta
   5. `ecs_sd_startup_duration_seconds` gauge records the time from process start to first successful cache population
 
-**Plans**: 4 plans (wave 1 -> wave 2 parallel -> wave 3)
+**Plans**: 6 plans (wave 1 -> wave 2 parallel -> wave 3 -> wave 4 gap closure -> wave 5 gap closure)
 **Wave 1**
 
-- [ ] 12-01-PLAN.md -- Extend MetricsState with 7 new metric families + registration + tests (MET-08..MET-14)
+- [x] 12-01-PLAN.md -- Extend MetricsState with 7 new metric families + registration + tests (MET-08..MET-14)
 
 **Wave 2** *(parallel -- no file overlap; both blocked on Wave 1)*
 
-- [ ] 12-02-PLAN.md -- HTTP metrics Tower middleware via route_layer + MatchedPath (MET-08, MET-09)
-- [ ] 12-03-PLAN.md -- DiscoveryService AWS call counting + AppState replace_cache_and_record_metrics helper (MET-10, MET-11, MET-12)
+- [x] 12-02-PLAN.md -- HTTP metrics Tower middleware via route_layer + MatchedPath (MET-08, MET-09)
+- [x] 12-03-PLAN.md -- DiscoveryService AWS call counting + AppState replace_cache_and_record_metrics helper (MET-10, MET-11, MET-12)
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 12-04-PLAN.md -- Wire record-metrics into all refresh paths + MET-14 startup + MET-13 follower syncs (MET-10, MET-11, MET-13, MET-14)
+- [x] 12-04-PLAN.md -- Wire record-metrics into all refresh paths + MET-14 startup + MET-13 follower syncs (MET-10, MET-11, MET-13, MET-14)
+
+**Wave 4** *(gap closure; blocked on failed Phase 12 verification)*
+
+- [x] 12-05-PLAN.md -- Close verifier gaps for MET-08 status label contract, MET-10 stale cluster gauge reset, and MET-14 process-start timing (MET-08, MET-10, MET-14)
+
+**Wave 5** *(gap closure; MET-14 one-shot startup duration across all cache population paths)*
+
+- [ ] 12-06-PLAN.md -- Add one-shot startup-duration helper on AppState + wire into all four cache population paths (MET-14)
 
 ### Phase 13: Config Endpoint & Churn Protection
 
@@ -144,7 +152,14 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
   3. With a churn threshold configured (e.g. 0.5), a refresh that would drop more than 50% of known targets is discarded and a warning is logged
   4. The churn threshold check is skipped when the previous cache was empty, allowing the initial target population to proceed
 
-**Plans**: TBD
+**Plans**: 2 plans (wave 1 then wave 2)
+**Wave 1**
+
+- [ ] 13-01-PLAN.md — Config field + churn protection guard: ECS_SD_MAX_TARGET_DROP_RATIO on Args/Config, validation, churn guard in replace_cache_and_record_metrics (CHURN-01)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 13-02-PLAN.md — Config endpoint: GET /config handler, ConfigResponse struct with secret masking, route registration (CONF-07)
 
 ### Phase 14: OpenAPI/Swagger
 
@@ -190,8 +205,8 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 | 9. CacheSnapshot Refactor & Module Cleanup | v0.3.0 | 3/3 | Complete    | 2026-07-06 |
 | 10. Error Hardening & Dependency Pinning | v0.3.0 | 2/2 | Complete    | 2026-07-07 |
 | 11. Rich Health Endpoint | v0.3.0 | 2/2 | Complete    | 2026-07-08 |
-| 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 0/4 | Planning    | - |
-| 13. Config Endpoint & Churn Protection | v0.3.0 | 0/? | Not started | - |
+| 12. HTTP Metrics Middleware & New Metric Families | v0.3.0 | 5/5 | Complete   | 2026-07-11 |
+| 13. Config Endpoint & Churn Protection | v0.3.0 | 0/2 | Not started | - |
 | 14. OpenAPI/Swagger | v0.3.0 | 0/? | Not started | - |
 | 15. Test Coverage | v0.3.0 | 0/? | Not started | - |
 
