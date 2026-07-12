@@ -2,23 +2,23 @@
 gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: Operational Excellence
-current_phase: 12 (next)
-status: executing
-last_updated: "2026-07-11T07:30:51.300Z"
-last_activity: 2026-07-08 -- Phase 11 verified (4/4 HEALTH requirements passed, 170 tests)
+current_phase: 13
+status: in-progress
+last_updated: "2026-07-12T12:08:00Z"
+last_activity: 2026-07-12 -- Completed Phase 13 Plan 01 config + churn protection
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 7
-  percent: 43
+  completed_phases: 4
+  total_plans: 13
+  completed_plans: 13
+  percent: 62
 ---
 
 # Project State: ecs-sd
 
 **Project:** ecs-sd — AWS ECS HTTP Service Discovery for Prometheus/VictoriaMetrics
 **Current Milestone:** v0.3.0 Operational Excellence
-**Current Phase:** 12 (next)
+**Current Phase:** 12
 **Last Updated:** 2026-07-08
 
 ---
@@ -29,7 +29,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-26)
 
 **Core value:** Zero-config metrics discovery for ECS containers — automatic discovery of metrics endpoints with configurable metadata
 
-**Current focus:** Phase 12 — HTTP Metrics Middleware & New Metric Families
+**Current focus:** Phase 12 — http-metrics-middleware-new-metric-families
 
 ---
 
@@ -48,8 +48,8 @@ See: `.planning/PROJECT.md` (updated 2026-05-26)
 | 9 | CacheSnapshot Refactor & Module Cleanup | ✓ Complete | 100% |
 | 10 | Error Hardening & Dependency Pinning | ✓ Complete | 100% |
 | 11 | Rich Health Endpoint | ✓ Complete | 100% |
-| 12 | HTTP Metrics Middleware & New Metric Families | Not started | 0% |
-| 13 | Config Endpoint & Churn Protection | Not started | 0% |
+| 12 | HTTP Metrics Middleware & New Metric Families | ✓ Complete | 100% |
+| 13 | Config Endpoint & Churn Protection | In progress | 33% |
 | 14 | OpenAPI/Swagger | Not started | 0% |
 | 15 | Test Coverage | Not started | 0% |
 
@@ -57,9 +57,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-26)
 
 ## Active Work
 
-**Phases 9, 10, 11 complete — ready to begin Phase 12**
+**Phase 13 — Plan 01 complete, ready for Plan 02**
 
-Phase 12 (HTTP Metrics Middleware) depends on Phase 9 (complete). Phase 13 (Config + Churn) also depends on Phase 9. Phase 14 blocked on 11–13. Phase 15 is final.
+Phase 13 (Config + Churn) Plan 01 done: max_target_drop_ratio config field + churn guard. Plan 02 (config endpoint handler) next.
 
 ---
 
@@ -111,6 +111,31 @@ _None_
 
 ## Current Position
 
-Phase: 12 (http-metrics-middleware) — NEXT
-Status: Ready to execute
-Last activity: 2026-07-08 -- Phase 11 verified (4/4 HEALTH requirements passed, 170 tests)
+Phase: 13 (config-endpoint-churn-protection) — IN PROGRESS
+Plan: 1 of 2
+Status: Plan 01 complete
+Last activity: 2026-07-12 -- Completed Phase 13 Plan 01 config + churn protection
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 12 P01 | 5 min | 2 tasks | 2 files |
+| Phase 12 P02 | 2 min | 2 tasks | 5 files |
+| Phase 12 P03 | 9 min | 2 tasks | 2 files |
+| Phase 12 P04 | 2 min | 2 tasks | 2 files |
+| Phase 12 P05 | 6 min | 3 tasks | 5 files |
+| Phase 13 P01 | 8 min | 2 tasks | 2 files |
+
+## Decisions
+
+- [Phase 12 Plan 01] Registered all new Phase 12 metrics in the existing custom `MetricsState::new()` Registry instead of using the global default registry.
+- [Phase 12 Plan 01] Kept HTTP duration labels to `endpoint` and `method` only; `status_code` is only on `http_requests_total` as planned.
+- [Phase 12 Plan 02] Attached HTTP metrics with `Router::route_layer` instead of `Router::layer` so axum `MatchedPath` is populated before labels are recorded.
+- [Phase 12 Plan 02] Left the optional separate metrics server uninstrumented; Plan 12-02 scopes HTTP request metrics to the primary merged application router.
+- [Phase 12 Plan 03] Counted AWS SDK pagination loop `.send()` calls per network round-trip, matching actual AWS API request volume.
+- [Phase 12 Plan 03] Scoped the old-address snapshot read before `replace_cache_and_routing`, avoiding a RwLock read/write deadlock in cache metrics recording.
+- [Phase 12 Plan 05] Kept HTTP request metric value order unchanged while renaming the public third label from `status_code` to `status`.
+- [Phase 12 Plan 05] Reset old and configured cluster gauge labels to 0.0 before writing current counts instead of deleting Prometheus series.
+- [Phase 12 Plan 05] Captured process startup timing at the beginning of `main` and injected it into `AppState` rather than starting the timer in the constructor.
+- [Phase 13 Plan 01] Extracted churn guard logic into pure `churn_guard_should_discard` helper function — testable without constructing AppState or mocks.

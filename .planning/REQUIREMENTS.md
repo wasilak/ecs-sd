@@ -30,13 +30,13 @@
 
 ### Operational Metrics
 
-- [ ] **MET-08**: `ecs_sd_http_requests_total{endpoint, method, status}` counter tracks request count per route (using matched path pattern, not raw URI, to avoid UUID cardinality explosion)
-- [ ] **MET-09**: `ecs_sd_http_request_duration_seconds{endpoint, method}` histogram tracks request latency per route — status code label omitted from histogram to control cardinality
-- [ ] **MET-10**: `ecs_sd_discovery_targets_per_cluster{cluster}` gauge tracks target count per ECS cluster name after each successful refresh
-- [ ] **MET-11**: `ecs_sd_discovery_target_churn_total{change}` counter (labels: `added`, `removed`) increments after each refresh where the target set changes
-- [ ] **MET-12**: `ecs_sd_aws_api_calls_total{operation}` counter tracks calls per AWS SDK operation (`list_tasks`, `describe_tasks`, `describe_task_definition`, `describe_container_instances`, `describe_instances`, `get_caller_identity`)
-- [ ] **MET-13**: `ecs_sd_cache_follower_syncs_total{result}` counter (labels: `success`, `error`, `skipped_leader`) tracks follower cache sync outcomes in cluster mode
-- [ ] **MET-14**: `ecs_sd_startup_duration_seconds` gauge records time from process start to first successful cache population
+- [x] **MET-08**: `ecs_sd_http_requests_total{endpoint, method, status}` counter tracks request count per route (using matched path pattern, not raw URI, to avoid UUID cardinality explosion)
+- [x] **MET-09**: `ecs_sd_http_request_duration_seconds{endpoint, method}` histogram tracks request latency per route — status code label omitted from histogram to control cardinality
+- [x] **MET-10**: `ecs_sd_discovery_targets_per_cluster{cluster}` gauge tracks target count per ECS cluster name after each successful refresh
+- [x] **MET-11**: `ecs_sd_discovery_target_churn_total{change}` counter (labels: `added`, `removed`) increments after each refresh where the target set changes
+- [x] **MET-12**: `ecs_sd_aws_api_calls_total{operation}` counter tracks calls per AWS SDK operation (`list_tasks`, `describe_tasks`, `describe_task_definition`, `describe_container_instances`, `describe_instances`, `get_caller_identity`)
+- [x] **MET-13**: `ecs_sd_cache_follower_syncs_total{result}` counter (labels: `success`, `error`, `skipped_leader`) tracks follower cache sync outcomes in cluster mode
+- [x] **MET-14**: `ecs_sd_startup_duration_seconds` gauge records time from process start to first successful cache population
 
 ### OpenAPI / Swagger
 
@@ -51,7 +51,7 @@
 
 ### Target Churn Protection
 
-- [ ] **CHURN-01**: A configurable `ECS_SD_MAX_TARGET_DROP_RATIO` (float 0.0–1.0, default `0.0` = disabled) controls the maximum fraction of targets that may be removed in a single refresh cycle; when the drop exceeds the threshold the new result is discarded, the stale cache is kept, and a warning is logged — the threshold check is skipped when the previous target count was zero (initial population)
+- [x] **CHURN-01**: A configurable `ECS_SD_MAX_TARGET_DROP_RATIO` (float 0.0–1.0, default `0.0` = disabled) controls the maximum fraction of targets that may be removed in a single refresh cycle; when the drop exceeds the threshold the new result is discarded, the stale cache is kept, and a warning is logged — the threshold check is skipped when the previous target count was zero (initial population)
 
 ### Test Coverage
 
@@ -100,15 +100,15 @@
 | HEALTH-02 | Phase 11 | Pending |
 | HEALTH-03 | Phase 11 | Pending |
 | HEALTH-04 | Phase 11 | Pending |
-| MET-08 | Phase 12 | Pending |
-| MET-09 | Phase 12 | Pending |
-| MET-10 | Phase 12 | Pending |
-| MET-11 | Phase 12 | Pending |
-| MET-12 | Phase 12 | Pending |
-| MET-13 | Phase 12 | Pending |
-| MET-14 | Phase 12 | Pending |
+| MET-08 | Phase 12 | Gap closure planned |
+| MET-09 | Phase 12 | Complete |
+| MET-10 | Phase 12 | Gap closure planned |
+| MET-11 | Phase 12 | Complete |
+| MET-12 | Phase 12 | Complete |
+| MET-13 | Phase 12 | Complete |
+| MET-14 | Phase 12 | Gap closure planned |
 | CONF-07 | Phase 13 | Pending |
-| CHURN-01 | Phase 13 | Pending |
+| CHURN-01 | Phase 13 | ✓ Complete |
 | API-01 | Phase 14 | Pending |
 | API-02 | Phase 14 | Pending |
 | API-03 | Phase 14 | Pending |

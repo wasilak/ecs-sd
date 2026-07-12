@@ -1,3 +1,4 @@
+pub mod config;
 pub mod health;
 pub mod metrics;
 pub mod proxy;
@@ -13,6 +14,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .merge(metrics::routes())
         .merge(sd::routes())
         .merge(proxy::routes())
+        .merge(config::routes())
         .route_layer(middleware::from_fn_with_state(
             state,
             crate::middleware::http_metrics::http_metrics_middleware,

@@ -155,7 +155,7 @@ Full archive: `.planning/milestones/v0.2.0-ROADMAP.md`
 **Plans**: 2 plans (wave 1 then wave 2)
 **Wave 1**
 
-- [ ] 13-01-PLAN.md — Config field + churn protection guard: ECS_SD_MAX_TARGET_DROP_RATIO on Args/Config, validation, churn guard in replace_cache_and_record_metrics (CHURN-01)
+- [x] 13-01-PLAN.md — Config field + churn protection guard: ECS_SD_MAX_TARGET_DROP_RATIO on Args/Config, validation, churn guard in replace_cache_and_record_metrics (CHURN-01)
 
 **Wave 2** *(blocked on Wave 1)*
 
