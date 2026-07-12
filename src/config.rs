@@ -135,6 +135,14 @@ pub struct Args {
         help = "Whether proxy mode forwards sensitive headers to upstream targets"
     )]
     pub proxy_forward_sensitive_headers: bool,
+
+    #[arg(
+        long,
+        env = "ECS_SD_MAX_TARGET_DROP_RATIO",
+        default_value = "0.0",
+        help = "Maximum fraction (0.0-1.0) of targets that may be removed in a single refresh cycle. 0.0 = disabled"
+    )]
+    pub max_target_drop_ratio: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +162,7 @@ pub struct Config {
     pub refresh_token: Option<String>,
     pub refresh_min_interval: u64,
     pub proxy_forward_sensitive_headers: bool,
+    pub max_target_drop_ratio: f64,
 }
 
 impl Default for Config {
@@ -174,6 +183,7 @@ impl Default for Config {
             refresh_token: None,
             refresh_min_interval: 30,
             proxy_forward_sensitive_headers: false,
+            max_target_drop_ratio: 0.0,
         }
     }
 }
@@ -276,6 +286,12 @@ impl Config {
             .node_id
             .unwrap_or_else(|| default_node_id(args.gossip_port));
 
+        if args.max_target_drop_ratio < 0.0 || args.max_target_drop_ratio > 1.0 {
+            return Err(ConfigError::InvalidValue(
+                "max target drop ratio must be between 0.0 and 1.0".to_string(),
+            ));
+        }
+
         Ok(Self {
             clusters,
             listen: args.listen,
@@ -292,6 +308,7 @@ impl Config {
             refresh_token: args.refresh_token,
             refresh_min_interval,
             proxy_forward_sensitive_headers: args.proxy_forward_sensitive_headers,
+            max_target_drop_ratio: args.max_target_drop_ratio,
         })
     }
 }
@@ -927,5 +944,50 @@ mod tests {
             !docs.contains("ECS_SD_PUBLIC_ADDRESS: ecs-sd.example.com:8080"),
             "docs must not use bare host:port for ECS_SD_PUBLIC_ADDRESS"
         );
+    }
+
+    #[test]
+    fn max_target_drop_ratio_defaults_to_zero() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
+        assert_eq!(config.max_target_drop_ratio, 0.0);
+    }
+
+    #[test]
+    fn max_target_drop_ratio_rejects_out_of_range() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let err = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--max-target-drop-ratio",
+            "1.5",
+        ])
+        .expect_err("should reject out-of-range value");
+        assert!(
+            err.to_string()
+                .contains("max target drop ratio must be between 0.0 and 1.0"),
+            "error was: {err}"
+        );
+    }
+
+    #[test]
+    fn max_target_drop_ratio_accepts_valid_range() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_mode_env_vars();
+        clear_cluster_env_vars();
+        let config = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--max-target-drop-ratio",
+            "0.5",
+        ])
+        .expect("should succeed");
+        assert_eq!(config.max_target_drop_ratio, 0.5);
     }
 }
