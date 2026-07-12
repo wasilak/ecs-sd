@@ -1,15 +1,15 @@
 ---
 phase: 12
 slug: http-metrics-middleware-new-metric-families
-status: draft
+status: approved
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-07-11
 ---
 
-# Phase 12 — Validation Strategy
+# Phase 12 - Validation Strategy
 
-> Per-phase validation contract for feedback sampling during execution.
+> Per-phase validation contract for feedback sampling during gap-closure execution.
 
 ---
 
@@ -17,20 +17,20 @@ created: 2026-07-11
 
 | Property | Value |
 |----------|-------|
-| **Framework** | cargo test (built-in) |
-| **Config file** | Cargo.toml |
-| **Quick run command** | `cargo build 2>&1 | tail -5` |
-| **Full suite command** | `cargo test 2>&1 | tail -20` |
-| **Estimated runtime** | ~12 seconds |
+| **Framework** | Rust `cargo test` |
+| **Config file** | `Cargo.toml` |
+| **Quick run command** | `cargo test app_state` |
+| **Full suite command** | `cargo test` |
+| **Estimated runtime** | ~2 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo build 2>&1 | tail -5`
-- **After every plan wave:** Run `cargo test 2>&1 | tail -20`
-- **Before `/gsd-verify-work`:** Full suite must be green
-- **Max feedback latency:** 12 seconds
+- **After every task commit:** Run the task-specific automated command listed below.
+- **After every plan wave:** Run `cargo test`.
+- **Before `/gsd-verify-work`:** `cargo build` and `cargo test` must be green.
+- **Max feedback latency:** 10 seconds for targeted checks, 30 seconds for full suite.
 
 ---
 
@@ -38,39 +38,33 @@ created: 2026-07-11
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 12-01-T1 | 01 | 1 | MET-08..14 | — | N/A | build + rg | `cargo build && rg -c 'registry.register' src/metrics/mod.rs` | ✅ | ⬜ pending |
-| 12-01-T2 | 01 | 1 | MET-08..14 | — | N/A | unit | `cargo test metrics` | ✅ | ⬜ pending |
-| 12-02-T1 | 02 | 2 | MET-08, MET-09 | T-12-02 | No raw URI label values (MatchedPath only) | build | `cargo build` | ❌ new file | ⬜ pending |
-| 12-02-T2 | 02 | 2 | MET-08, MET-09 | T-12-02 | route_layer prevents pre-routing middleware | build + rg | `cargo test && rg 'route_layer' src/routes/mod.rs` | ✅ | ⬜ pending |
-| 12-03-T1 | 03 | 2 | MET-12 | T-12-05 | Read-lock released before write-lock | build + rg | `cargo build && rg -c '\.send\(\)' src/aws/discovery.rs` | ✅ | ⬜ pending |
-| 12-03-T2 | 03 | 2 | MET-10, MET-11, MET-12 | T-12-05 | Deadlock-safe: read scope ends before write begins | unit | `cargo test app_state && cargo test` | ✅ | ⬜ pending |
-| 12-04-T1 | 04 | 3 | MET-10, MET-11, MET-13, MET-14 | — | startup_duration set exactly once, not in refresh loop | build + rg | `cargo build && rg -c 'startup_duration_seconds' src/main.rs` | ✅ | ⬜ pending |
-| 12-04-T2 | 04 | 3 | MET-10, MET-11 | — | N/A | build + rg | `cargo test && rg 'replace_cache_and_record_metrics' src/handlers/sd.rs` | ✅ | ⬜ pending |
+| 12-05-01 | 05 | 4 | MET-08 | T-12-05-01 / T-12-05-03 | HTTP metric labels remain bounded by matched path, method, and status; raw URI and `status_code` contract drift are avoided. | unit/contract | `cargo test metrics::tests::http_requests_total_uses_required_label_names && cargo test metrics::tests::http_requests_total_countervec_works` | yes | pending |
+| 12-05-02 | 05 | 4 | MET-10 | T-12-05-02 | Cluster label set remains bounded while stale non-zero per-cluster gauges are reset to zero after successful refresh. | unit/regression | `cargo test app_state` | yes | pending |
+| 12-05-03 | 05 | 4 | MET-14 | T-12-05-04 | Startup timing exposes only intended coarse process timing and no secrets or request data. | unit/regression | `cargo test require_region_errors_when_none && cargo test ttl_refresh_loop_uses_skip_missed_tick_behavior && cargo test app_state` | yes | pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: pending / green / red / flaky*
 
 ---
 
 ## Wave 0 Requirements
 
-Existing infrastructure covers all phase requirements — no new test framework or stubs needed.
-Rust's `cargo test` is the test harness. No Wave 0 setup required.
+Existing Rust test infrastructure covers all Phase 12 gap-closure requirements. No Wave 0 setup is required.
 
 ---
 
 ## Manual-Only Verifications
 
-All phase behaviors have automated verification.
+All Phase 12 gap-closure behaviors have automated verification.
 
 ---
 
 ## Validation Sign-Off
 
-- [x] All tasks have `<automated>` verify or Wave 0 dependencies
-- [x] Sampling continuity: no 3 consecutive tasks without automated verify
-- [x] Wave 0 covers all MISSING references (none — existing infra)
-- [x] No watch-mode flags
-- [x] Feedback latency < 12s
-- [x] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify commands.
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify.
+- [x] Wave 0 covers all MISSING references; none are present.
+- [x] No watch-mode flags.
+- [x] Feedback latency is below 30 seconds for the current suite.
+- [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** pending
+**Approval:** approved 2026-07-11

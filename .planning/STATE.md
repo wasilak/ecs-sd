@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: Operational Excellence
-current_phase: 12
+current_phase: 13
 status: completed
-last_updated: "2026-07-12T15:53:39.023Z"
-last_activity: 2026-07-12 -- Completed Phase 13 Plan 01 config + churn protection
+last_updated: "2026-07-12T16:05:00.000Z"
+last_activity: 2026-07-12 -- Completed Phase 13 Config Endpoint & Churn Protection
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 15
-  completed_plans: 15
-  percent: 71
+  completed_plans: 17
+  percent: 86
 ---
 
 # Project State: ecs-sd
@@ -49,7 +49,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-26)
 | 10 | Error Hardening & Dependency Pinning | ✓ Complete | 100% |
 | 11 | Rich Health Endpoint | ✓ Complete | 100% |
 | 12 | HTTP Metrics Middleware & New Metric Families | ✓ Complete | 100% |
-| 13 | Config Endpoint & Churn Protection | In progress | 33% |
+| 13 | Config Endpoint & Churn Protection | ✓ Complete | 100% |
 | 14 | OpenAPI/Swagger | Not started | 0% |
 | 15 | Test Coverage | Not started | 0% |
 
@@ -57,9 +57,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-26)
 
 ## Active Work
 
-**Phase 13 — Plan 01 complete, ready for Plan 02**
+**Phase 13 — Complete ✓**
 
-Phase 13 (Config + Churn) Plan 01 done: max_target_drop_ratio config field + churn guard. Plan 02 (config endpoint handler) next.
+Phase 13 (Config Endpoint & Churn Protection) complete. All 201 tests passing.
 
 ---
 
@@ -99,11 +99,8 @@ _None_
 
 ## Next Actions
 
-1. Run `/gsd-plan-phase 9` — CacheSnapshot Refactor & Module Cleanup
-2. Phase 10 (Error Hardening) can be planned in parallel — independent of Phase 9
-3. After Phase 9 completes: phases 11, 12, 13 unlock (can be planned independently)
-4. Phase 14 planned only after phases 11–13 are complete
-5. Phase 15 planned after Phase 14 completes
+1. Phase 14 (OpenAPI/Swagger) can now be planned
+2. Phase 15 (Test Coverage) planned after Phase 14 completes
 
 ---
 
@@ -111,10 +108,10 @@ _None_
 
 ## Current Position
 
-Phase: 13 (config-endpoint-churn-protection) — IN PROGRESS
+Phase: 13 (config-endpoint-churn-protection) — COMPLETE
 Plan: 2 of 2
-Status: Plan 01 complete
-Last activity: 2026-07-12 -- Completed Phase 13 Plan 01 config + churn protection
+Status: Complete
+Last activity: 2026-07-12 -- Completed Phase 13 Config Endpoint & Churn Protection
 
 ## Performance Metrics
 
@@ -126,6 +123,7 @@ Last activity: 2026-07-12 -- Completed Phase 13 Plan 01 config + churn protectio
 | Phase 12 P04 | 2 min | 2 tasks | 2 files |
 | Phase 12 P05 | 6 min | 3 tasks | 5 files |
 | Phase 13 P01 | 8 min | 2 tasks | 2 files |
+| Phase 13 P02 | 3 min | 2 tasks | 6 files |
 
 ## Decisions
 
@@ -138,4 +136,7 @@ Last activity: 2026-07-12 -- Completed Phase 13 Plan 01 config + churn protectio
 - [Phase 12 Plan 05] Kept HTTP request metric value order unchanged while renaming the public third label from `status_code` to `status`.
 - [Phase 12 Plan 05] Reset old and configured cluster gauge labels to 0.0 before writing current counts instead of deleting Prometheus series.
 - [Phase 12 Plan 05] Captured process startup timing at the beginning of `main` and injected it into `AppState` rather than starting the timer in the constructor.
+- [Phase 13 Plan 01] Extracted churn guard as pure function `churn_guard_should_discard()` for testability; guard skips when old cache is empty (initial population).
+- [Phase 13 Plan 02] Created separate `ConfigResponse` struct instead of deriving Serialize on `Config` — avoids serializing `refresh_token` secret.
+- [Phase 13 Plan 02] Added `#[derive(Serialize)]` to `Mode` and `ClusterMode` enums (Rule 3 auto-fix).
 - [Phase 13 Plan 01] Extracted churn guard logic into pure `churn_guard_should_discard` helper function — testable without constructing AppState or mocks.

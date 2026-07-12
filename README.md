@@ -19,6 +19,8 @@ flowchart LR
 - **Prometheus native** — Returns `http_sd_configs` compatible JSON
 - **5 metadata levels** — From container to AWS account context
 - **Stale-while-revalidate** — Always serves cached data, refreshes in background
+- **Churn protection** — Prevents AWS transient failures from wiping the target cache
+- **Runtime config endpoint** — Inspect effective configuration over HTTP (`GET /config`)
 
 ## Quick Start
 
@@ -133,6 +135,7 @@ Essential options:
 | `--mode` | `ECS_SD_MODE` | `discovery` | `discovery` or `proxy` |
 | `--public-address` | `ECS_SD_PUBLIC_ADDRESS` | — | Required for proxy mode |
 | `--cluster-mode` | `ECS_SD_CLUSTER_MODE` | `standalone` | `standalone` or `cluster` |
+| `--max-target-drop-ratio` | `ECS_SD_MAX_TARGET_DROP_RATIO` | `0.0` | Max fraction (0.0-1.0) of targets that may be removed in a single refresh. `0.0` = disabled |
 
 See [Configuration Reference](docs/configuration.md) for all options.
 
@@ -144,6 +147,7 @@ See [Configuration Reference](docs/configuration.md) for all options.
 | `GET /sd` | Service discovery targets |
 | `POST /sd/refresh` | Trigger cache refresh |
 | `GET /proxy/:id/metrics` | Proxy to target (proxy mode) |
+| `GET /config` | Runtime configuration (secrets masked) |
 | `GET /metrics` | Prometheus metrics |
 
 `GET /sd` supports flexible filtering. See the [Filtering section](#filtering) below and the full [API Reference](docs/api.md).
@@ -244,6 +248,23 @@ curl "http://ecs-sd:8080/sd?level=cluster&cluster=production"
 
 Available levels (each includes everything from the levels above it):
 `container` → `task` → `service` → `cluster` → `aws`
+
+---
+
+## Churn Protection
+
+AWS transient failures can cause partial data returns, wiping the in-memory target cache. Churn protection guards against this by comparing the new target set against the previous one before accepting a refresh.
+
+```bash
+# Discard refreshes where more than 30% of targets would be removed
+--max-target-drop-ratio 0.3
+# Or via environment variable
+ECS_SD_MAX_TARGET_DROP_RATIO=0.3
+```
+
+- `0.0` (default) — disabled, always accept refreshes
+- `0.1` — `1.0` — discard refreshes where the drop ratio exceeds the threshold
+- When a refresh is discarded, a warning is logged and the stale cache is retained
 
 ---
 
