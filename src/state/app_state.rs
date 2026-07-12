@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use tokio::sync::RwLock;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::aws::DiscoveryService;
@@ -107,6 +108,21 @@ pub(crate) fn target_address_churn(old: &HashSet<String>, new: &HashSet<String>)
     (new.difference(old).count(), old.difference(new).count())
 }
 
+/// Returns `true` when the fraction of removed addresses exceeds `max_drop_ratio`.
+/// Returns `false` when the guard is disabled (ratio 0.0) or the old cache was empty.
+pub(crate) fn churn_guard_should_discard(
+    old_addrs: &HashSet<String>,
+    new_addrs: &HashSet<String>,
+    max_drop_ratio: f64,
+) -> bool {
+    if max_drop_ratio <= 0.0 || old_addrs.is_empty() {
+        return false;
+    }
+    let drop_count = old_addrs.difference(new_addrs).count();
+    let drop_ratio = drop_count as f64 / old_addrs.len() as f64;
+    drop_ratio > max_drop_ratio
+}
+
 #[derive(Clone)]
 pub struct RefreshOutcome {
     pub success: bool,
@@ -205,6 +221,20 @@ impl AppState {
             .iter()
             .flat_map(|target| target.targets.iter().cloned())
             .collect();
+
+        // CHURN-01: Guard against excessive target drop
+        if churn_guard_should_discard(&old_addresses, &new_addresses, self.config.max_target_drop_ratio) {
+            let drop_count = old_addresses.difference(&new_addresses).count();
+            warn!(
+                drop_count,
+                old_count = old_addresses.len(),
+                new_count = new_addresses.len(),
+                drop_ratio = format_args!("{:.4}", drop_count as f64 / old_addresses.len() as f64),
+                max_drop_ratio = format_args!("{:.4}", self.config.max_target_drop_ratio),
+                "target churn exceeds threshold — discarding refresh, keeping stale cache"
+            );
+            return;
+        }
 
         self.replace_cache_and_routing(targets_aws).await;
 
@@ -466,5 +496,44 @@ mod tests {
             first_value, second_value,
             "gauge must not be overwritten on second call"
         );
+    }
+
+    #[test]
+    fn churn_guard_allows_below_threshold() {
+        let old = HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let new = HashSet::from(["a".to_string(), "b".to_string()]);
+        // drop = 1/3 = 0.333, threshold = 0.5 → allow
+        assert!(!churn_guard_should_discard(&old, &new, 0.5));
+    }
+
+    #[test]
+    fn churn_guard_discards_on_exceed() {
+        let old = HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let new = HashSet::from(["a".to_string()]);
+        // drop = 2/3 = 0.667, threshold = 0.5 → discard
+        assert!(churn_guard_should_discard(&old, &new, 0.5));
+    }
+
+    #[test]
+    fn churn_guard_skips_when_empty() {
+        let old = HashSet::new();
+        let new = HashSet::new();
+        assert!(!churn_guard_should_discard(&old, &new, 0.5));
+    }
+
+    #[test]
+    fn churn_guard_disabled_when_zero() {
+        let old = HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let new = HashSet::from(["a".to_string()]);
+        // ratio 0.0 = disabled
+        assert!(!churn_guard_should_discard(&old, &new, 0.0));
+    }
+
+    #[test]
+    fn churn_guard_exact_boundary() {
+        let old = HashSet::from(["a".to_string(), "b".to_string()]);
+        let new = HashSet::from(["a".to_string()]);
+        // drop = 1/2 = 0.5, threshold = 0.5 → NOT > 0.5, so allow
+        assert!(!churn_guard_should_discard(&old, &new, 0.5));
     }
 }
