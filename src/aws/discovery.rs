@@ -1048,4 +1048,103 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 1);
     }
+
+    #[tokio::test]
+    async fn discover_all_clusters_total_failure_with_mock() {
+        use aws_smithy_mocks::{mock, mock_client};
+
+        let ecs_rule = mock!(aws_sdk_ecs::Client::describe_clusters)
+            .then_error(|| {
+                aws_sdk_ecs::operation::describe_clusters::DescribeClustersError::ServerException(
+                    aws_sdk_ecs::types::error::ServerException::builder()
+                        .message("simulated failure")
+                        .build(),
+                )
+            });
+        let ecs_client = mock_client!(aws_sdk_ecs, [&ecs_rule]);
+
+        let ec2_client = aws_sdk_ec2::Client::from_conf(
+            aws_sdk_ec2::config::Builder::new()
+                .behavior_version_latest()
+                .region(aws_sdk_ec2::config::Region::new("us-east-1"))
+                .credentials_provider(aws_sdk_ecs::config::Credentials::new(
+                    "test", "test", None, None, "test",
+                ))
+                .build(),
+        );
+
+        let metrics = std::sync::Arc::new(crate::metrics::MetricsState::new().unwrap());
+        let discovery = DiscoveryService::new_for_test(
+            ecs_client, ec2_client, "123456789012", "us-east-1", metrics,
+        );
+
+        let result = discovery
+            .discover_all_clusters(&["prod".to_string()], crate::config::Mode::Discovery)
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DiscoveryError::AllClustersFailed));
+    }
+
+    #[tokio::test]
+    async fn discover_all_clusters_partial_failure_with_mock() {
+        use aws_smithy_mocks::{mock, mock_client, RuleMode};
+
+        let fail_rule = mock!(aws_sdk_ecs::Client::describe_clusters)
+            .then_error(|| {
+                aws_sdk_ecs::operation::describe_clusters::DescribeClustersError::ServerException(
+                    aws_sdk_ecs::types::error::ServerException::builder()
+                        .message("simulated failure")
+                        .build(),
+                )
+            });
+
+        let ok_describe_rule = mock!(aws_sdk_ecs::Client::describe_clusters)
+            .then_output(|| {
+                aws_sdk_ecs::operation::describe_clusters::DescribeClustersOutput::builder()
+                    .clusters(
+                        aws_sdk_ecs::types::Cluster::builder()
+                            .cluster_arn("arn:aws:ecs:us-east-1:123456789012:cluster/ok-cluster")
+                            .cluster_name("ok-cluster")
+                            .build(),
+                    )
+                    .build()
+            });
+
+        let ok_list_rule = mock!(aws_sdk_ecs::Client::list_services)
+            .then_output(|| {
+                aws_sdk_ecs::operation::list_services::ListServicesOutput::builder().build()
+            });
+
+        let ecs_client = mock_client!(
+            aws_sdk_ecs,
+            RuleMode::Sequential,
+            [&fail_rule, &ok_describe_rule, &ok_list_rule]
+        );
+
+        let ec2_client = aws_sdk_ec2::Client::from_conf(
+            aws_sdk_ec2::config::Builder::new()
+                .behavior_version_latest()
+                .region(aws_sdk_ec2::config::Region::new("us-east-1"))
+                .credentials_provider(aws_sdk_ecs::config::Credentials::new(
+                    "test", "test", None, None, "test",
+                ))
+                .build(),
+        );
+
+        let metrics = std::sync::Arc::new(crate::metrics::MetricsState::new().unwrap());
+        let discovery = DiscoveryService::new_for_test(
+            ecs_client, ec2_client, "123456789012", "us-east-1", metrics,
+        );
+
+        let result = discovery
+            .discover_all_clusters(
+                &["fail-cluster".to_string(), "ok-cluster".to_string()],
+                crate::config::Mode::Discovery,
+            )
+            .await;
+
+        assert!(result.is_ok(), "partial failure should still return Ok");
+        assert_eq!(result.unwrap().len(), 0, "ok-cluster had no services");
+    }
 }
