@@ -53,4 +53,38 @@
 
 ---
 
+---
+
+## v0.3.0 — Operational Excellence
+
+**Shipped:** 2026-07-13
+**Phases:** 9–15 | **Plans:** 21 | **Tests:** 215 (was 103)
+
+### Delivered
+
+1. **CacheSnapshot Atomicity** — Single `Arc<RwLock<CacheSnapshot>>` replaces 3 separate locks, eliminating torn reads
+2. **Production Hardening** — Zero panics in HTTP paths, reqwest timeouts, exact SDK pins, region validation
+3. **Rich Health Probes** — `/health` (structured JSON), `/health/live` (always 200), `/health/ready` (readiness gating)
+4. **7 New Prometheus Metrics** — HTTP requests/latency, per-cluster targets, target churn, AWS API calls, startup duration
+5. **Config Endpoint + Churn Protection** — Runtime config introspection, stale-cache preservation on AWS glitches
+6. **OpenAPI/Swagger** — Machine-readable spec + visual explorer for all 8 endpoints
+7. **Test Coverage** — 215 tests: handler integration + mocked AWS failure paths
+
+### Technical Highlights
+
+- 7,748 LOC Rust across routes/, handlers/, models/, aws/, cluster/, metrics/
+- 23 feat commits over 6 days (2026-07-07 → 2026-07-13)
+- 27/27 requirements satisfied
+- Custom Tower middleware for HTTP metrics (avoided incompatible axum-prometheus)
+
+### Known Deferred Items
+
+- PKG-03: GHCR auto-push / GitHub Actions release not fully wired
+- WR-03: `publish_cache_to_gossip` holds snapshot lock across async gossip awaits
+- AWS credential modes: E2E testing incomplete
+
+**Archive:** `.planning/milestones/v0.3.0-ROADMAP.md`
+
+---
+
 *See .planning/PROJECT.md for current state*

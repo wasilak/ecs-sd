@@ -2,75 +2,43 @@
 
 ## What This Is
 
-A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP service discovery** for AWS ECS (Elastic Container Service). It runs as a web service that exposes endpoints (`/sd` and `/health`) which return scrape targets in the format expected by `http_sd_configs`. Built for teams running Prometheus or VictoriaMetrics who want automatic discovery of ECS container metrics endpoints without manual configuration.
+A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP service discovery** for AWS ECS (Elastic Container Service). It runs as a web service that exposes endpoints (`/sd`, `/health`, `/metrics`, `/config`, `/openapi.json`) which return scrape targets in the format expected by `http_sd_configs`. Built for teams running Prometheus or VictoriaMetrics who want automatic discovery of ECS container metrics endpoints without manual configuration.
 
 ## Core Value
 
 **Zero-config metrics discovery for ECS containers** — automatically discover and expose scrape targets for containers with metrics endpoints, using configurable metadata levels and serving cached results to prevent AWS API throttling.
 
-## Current Milestone: v0.3.0 Operational Excellence
-
-**Goal:** Harden code quality, enrich observability, and add API documentation to make ecs-sd production-grade and self-describing.
-
-**Target features:**
-- Code quality: fix all high/medium-priority technical debt (panics, lock atomicity, silent error dropping, inverted deps, dep pinning)
-- Operational metrics: 7 new Prometheus metrics (HTTP request rate/latency, per-cluster targets, target churn, AWS API calls, cache hit/miss, startup time)
-- Rich health endpoint: `/health` with cache state/age, cluster role, uptime; `/health/live` + `/health/ready` for k8s/ELB probes
-- OpenAPI/Swagger: `utoipa` integration, Swagger UI at `/swagger-ui`, machine-readable spec at `/openapi.json`
-- Config endpoint: `GET /config` exposing effective runtime configuration (sanitized, no secrets)
-- Target churn protection: configurable threshold to prevent empty-cache on AWS API glitches
-- Test coverage: HTTP handler integration tests + mocked AWS discovery tests
-
 ## Requirements
 
 ### Validated
 
-- **Phase 03 (caching-configuration)**
-  - **CONF-01**: Use clap for CLI with full env var support — v1.0
-  - **CONF-02**: Support cluster list configuration — v1.0
-  - **CONF-03**: Support metadata level configuration — v1.0
-  - **CONF-04**: Support refresh interval configuration — v1.0
-  - **CONF-05**: Support listen address/port configuration — v1.0
-  - **CONF-06**: AWS credentials via standard chain (live human UAT still pending) — v1.0
-  - **CACHE-01**: Cache AWS discovery results in memory — v1.0
-  - **CACHE-02**: Configurable refresh interval (default: 60s) — v1.0
-  - **CACHE-03**: Background refresh on interval (non-blocking) — v1.0
-  - **CACHE-04**: Always serve cached data — stale data acceptable until refresh succeeds — v1.0
-  - **CACHE-05**: Prevent thundering herd/request flood during cache refresh — v1.0
-  - **CACHE-06**: TTL explicitly enforced against refresh interval — v1.0
+- **v1.0 (Phases 1–5)**
+  - CONF-01..06, CACHE-01..06: Configuration, caching, CLI — v1.0
 
-- **v0.2.0 Network (Phases 6-8)**
-  - **PROX-01** to **PROX-07**: Proxy mode with reverse proxy support — v0.2.0
-  - **FARG-01** to **FARG-03**: Fargate task discovery via ENI extraction — v0.2.0
-  - **CLUS-01** to **CLUS-09**: Horizontal clustering with gossip and leader election — v0.2.0
-  - **MET-01** to **MET-07**: Prometheus metrics endpoint with 9 operational metrics — v0.2.0
+- **v0.2.0 Network (Phases 6–8)**
+  - PROX-01..07: Proxy mode with reverse proxy — v0.2.0
+  - FARG-01..03: Fargate task discovery via ENI — v0.2.0
+  - CLUS-01..09: Horizontal clustering with gossip — v0.2.0
+  - MET-01..07: Prometheus metrics endpoint — v0.2.0
 
-### Active — v0.3.0
+- **v0.3.0 Operational Excellence (Phases 9–15)**
+  - QUAL-01..08: CacheSnapshot atomicity, error hardening, dependency pinning — v0.3.0
+  - HEALTH-01..04: Rich health endpoint with K8s probe support — v0.3.0
+  - MET-08..14: 7 new Prometheus metrics (HTTP, discovery, churn, AWS, startup) — v0.3.0
+  - CONF-07: Config endpoint with secret masking — v0.3.0
+  - CHURN-01: Target churn protection guard — v0.3.0
+  - API-01..04: OpenAPI/Swagger self-documentation — v0.3.0
+  - TEST-01..02: Handler integration + mocked AWS failure tests — v0.3.0
 
-*Defining requirements for v0.3.0 Operational Excellence milestone.*
+### Active
 
-**Validated in Phase 11 (rich-health-endpoint):**
-- **HEALTH-01**: GET /health returns structured JSON (status, version, uptime_seconds, cache, cluster, last_refresh) — v0.3.0
-- **HEALTH-02**: GET /health returns HTTP 503 only when cache is empty AND last refresh failed — v0.3.0
-- **HEALTH-03**: GET /health/live always returns HTTP 200 with `{"status":"alive"}` — no state checked — v0.3.0
-- **HEALTH-04**: GET /health/ready returns 200 when cache has targets, 503 when empty — v0.3.0
-
-**Validated in Phase 10 (error-hardening-dependency-pinning):**
-- **QUAL-03**: No panic on HTTP response construction — `unwrap_or_else` fallbacks in proxy/metrics handlers — v0.3.0
-- **QUAL-04**: reqwest connect timeout (5s) and TCP keepalive (10s) on shared client — v0.3.0
-- **QUAL-07**: Exact version pins for `aws-sdk-ec2=1.236.0` and `aws-sdk-ecs=1.133.1` — v0.3.0
-- **QUAL-08**: Hard startup failure on missing `AWS_REGION` via `require_region()` gate — v0.3.0
-
-**Deferred from v1.0/v0.2.0**
-- **PKG-03**: Full GitHub Actions release automation (GHCR push) — infrastructure task
-- **QUAL-02/03**: Idiomatic error handling audit (`thiserror`, remove unwrap) — refactoring
-- **CONF-06**: Complete AWS credential modes E2E testing — pending access to all auth methods
+_No active requirements — define via `/gsd-new-milestone` for next milestone._
 
 ### Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Fargate support in discovery mode | ✅ Implemented in v0.2.0 via proxy mode — Fargate tasks work via `/proxy/:id/*path` routing |
+| Fargate support in discovery mode | ✅ Implemented in v0.2.0 via proxy mode |
 | Multiple containers per task | One target per task with metrics_port label |
 | Write operations to AWS | Read-only discovery only |
 | Metrics scraping | This is discovery, not scraping |
@@ -79,6 +47,8 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 | File-based service discovery | HTTP SD only |
 | TLS/HTTPS termination | Run behind reverse proxy if needed |
 | Authentication/authorization | Use network-level controls |
+| `axum-prometheus` crate | Uses different Prometheus registry ecosystem — incompatible |
+| SIGHUP hot-reload | Deferred — restart is acceptable for config changes |
 
 ## Context
 
@@ -111,7 +81,7 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 
 ## Constraints
 
-- **Launch type**: EC2 only (no Fargate)
+- **Launch type**: EC2 only (no Fargate — Fargate supported via proxy mode)
 - **Target criteria**: Container must have docker label `metrics_port`
 - **Address format**: EC2 instance private IP + metrics_port value
 - **Cache behavior**: Always serve cached, refresh in background
@@ -136,33 +106,50 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 | Min NodeId leader election | Simple deterministic algorithm, no additional consensus | ✓ Correct — works with gossip failure detection |
 | Optional separate metrics port | Security separation, allows firewall rules | ✓ Correct — follows Prometheus conventions |
 | Self-registration as emergent behavior | No special code needed, just standard discovery | ✓ Correct — elegant solution |
+| CacheSnapshot atomicity | Single `Arc<RwLock<CacheSnapshot>>` replaces 3 locks — no torn reads | ✓ Correct — prerequisite for health/metrics enrichment |
+| Custom HTTP metrics middleware | `from_fn_with_state` Tower middleware instead of `axum-prometheus` (incompatible registry) | ✓ Correct — preserves 9 existing metrics |
+| `utoipa` for OpenAPI | 3 new crates, simpler `merge(SwaggerUi::new(...))` pattern | ✓ Correct — minimal deps, good axum support |
+| `/health/live` for ALB | Must point at always-200 endpoint, not `/health` | ✓ Correct — prevents eviction loop during AWS outage |
+| `last_manual_refresh_request` as AtomicU64 | Must NOT fold into CacheSnapshot — different write path | ✓ Correct — rate-limiting concern |
+| `discover_all_clusters` returns Result | Caller skips cache replacement on `Err` | ✓ Correct — stale-while-revalidate guarantee |
+| Churn guard as pure function | `churn_guard_should_discard()` testable without mocks | ✓ Correct — clean separation |
+| ConfigResponse separate from Config | Avoids serializing `refresh_token` secret | ✓ Correct — security by design |
 
 ## Current State
 
-**v0.3.0 Operational Excellence in progress — Phase 09 complete 2026-07-06.**
+**v0.3.0 Operational Excellence shipped 2026-07-13.**
 
-- 159 unit tests passing (`cargo test`)
-- **Three operating modes:** Discovery, Proxy, Cluster (unchanged from v0.2.0)
+- 215 unit tests passing (`cargo test`)
+- **Three operating modes:** Discovery, Proxy, Cluster
+- **7,748 LOC Rust** across routes/, handlers/, models/, aws/, cluster/, metrics/
+- **HTTP endpoints:** /sd, /sd/refresh, /health, /health/live, /health/ready, /metrics, /config, /openapi.json, /swagger-ui, /proxy/:id/*path
 
-**Phase 09 complete — cachesnapshot-refactor-module-cleanup:**
-- `filter_labels_by_level` moved to `src/models/label_filter.rs` (QUAL-05: state layer no longer imports from handlers)
-- `AppState` consolidated to single `Arc<RwLock<CacheSnapshot>>` — atomic cache replacement, no torn reads (QUAL-01)
-- `last_manual_refresh_request` converted to `Arc<AtomicU64>` — no async lock for rate limiting
-- `migrate_target_label_schema` dead-code shim removed (QUAL-06)
-- `discover_all_clusters` returns `Result<Vec<Target>, DiscoveryError>` — stale cache preserved on total AWS failure (QUAL-02)
+**v0.3.0 deliverables:**
+- CacheSnapshot atomicity — single `Arc<RwLock<CacheSnapshot>>`, no torn reads
+- Zero panics in HTTP paths — `unwrap_or_else` fallbacks in proxy/metrics handlers
+- reqwest connect_timeout(5s) + tcp_keepalive(10s)
+- Exact SDK pins — aws-sdk-ec2=1.236.0, aws-sdk-ecs=1.133.1
+- Hard startup failure on missing AWS region
+- Rich `/health` JSON — status, version, uptime, cache state, cluster role, last refresh
+- `/health/live` (always 200) for ALB/K8s liveness probes
+- `/health/ready` (200/503) for readiness gating
+- 7 new Prometheus metrics — HTTP requests/latency, per-cluster targets, churn, AWS calls, startup
+- `GET /config` with secret masking
+- Target churn protection — configurable drop ratio threshold
+- OpenAPI 3.0 spec + Swagger UI
+- 215 tests: handler integration + mocked AWS failure paths
 
 **Known gaps carried forward:**
 - PKG-03: GHCR auto-push / GitHub Actions release not fully wired
-- QUAL-03: Some `unwrap`/`expect` in production paths remain
-- WR-03 (code review): `publish_cache_to_gossip` holds snapshot lock across async gossip awaits — should clone then release
+- WR-03: `publish_cache_to_gossip` holds snapshot lock across async gossip awaits — should clone then release
 - AWS credential modes: E2E testing incomplete
 
-**v0.3.0 remaining phases:** Phase 10 (error-hardening-&-dependency-pinning) next.
+---
 
 ## Evolution
 
 <details>
-<summary>Instructions for future milestone transitions</summary>
+<summary>v0.3.0 → next milestone transition</summary>
 
 **After each phase transition:**
 1. Requirements invalidated? → Move to Out of Scope with reason
@@ -179,4 +166,4 @@ A Rust HTTP server that provides **Prometheus/VictoriaMetrics-compatible HTTP se
 </details>
 
 ---
-*Last updated: 2026-07-08 — Phase 11 complete (HEALTH-01..04), v0.3.0 in progress*
+*Last updated: 2026-07-13 after v0.3.0 milestone*
