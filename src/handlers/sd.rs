@@ -1109,4 +1109,103 @@ mod tests {
         let filtered = filter_targets(targets, &params);
         assert_eq!(filtered.len(), 2);
     }
+
+    // --- Integration tests through full router ---
+
+    #[tokio::test]
+    async fn sd_integration_empty_cache_returns_empty_array() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = crate::test_helpers::build_test_state();
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/sd").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.is_array(), "response should be a JSON array");
+        assert_eq!(json.as_array().unwrap().len(), 0, "empty cache should return empty array");
+    }
+
+    #[tokio::test]
+    async fn sd_integration_returns_targets_when_populated() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let target = create_test_target("prod", "api", "api-task");
+        let state = crate::test_helpers::build_test_state_with_targets(vec![target]).await;
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/sd?level=task").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let arr = json.as_array().expect("response should be a JSON array");
+        assert_eq!(arr.len(), 1, "should return one target");
+        // At task level, __meta_ecs_task_family is available
+        assert_eq!(
+            arr[0].get("labels").and_then(|l| l.get("__meta_ecs_task_family")).and_then(|v| v.as_str()),
+            Some("api-task")
+        );
+    }
+
+    #[tokio::test]
+    async fn sd_integration_filter_by_cluster() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let targets = vec![
+            create_test_target("prod", "api", "api-task"),
+            create_test_target("dev", "web", "web-task"),
+        ];
+        let state = crate::test_helpers::build_test_state_with_targets(targets).await;
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        // Use level=aws to preserve __meta_ecs_cluster_name for filtering
+        let response = app
+            .oneshot(Request::builder().uri("/sd?cluster=prod&level=aws").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let arr = json.as_array().expect("response should be a JSON array");
+        assert_eq!(arr.len(), 1, "should return only prod target");
+        assert_eq!(
+            arr[0].get("labels").and_then(|l| l.get("__meta_ecs_cluster_name")).and_then(|v| v.as_str()),
+            Some("prod")
+        );
+    }
+
+    #[tokio::test]
+    async fn sd_integration_response_includes_cache_headers() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = crate::test_helpers::build_test_state();
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/sd").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        let headers = response.headers();
+        assert!(headers.contains_key("x-cache-age"), "response should include X-Cache-Age header");
+        assert!(headers.contains_key("x-cache-state"), "response should include X-Cache-State header");
+    }
 }

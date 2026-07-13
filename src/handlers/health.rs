@@ -309,4 +309,97 @@ mod tests {
         assert!(last_refresh.get("status").is_some(), "missing last_refresh.status");
         assert!(last_refresh.get("timestamp").is_some(), "missing last_refresh.timestamp");
     }
+
+    // --- Integration tests through full router ---
+
+    #[tokio::test]
+    async fn health_live_handler_integration_returns_200() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = crate::test_helpers::build_test_state();
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/health/live").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("alive"));
+    }
+
+    #[tokio::test]
+    async fn health_ready_returns_503_when_cache_empty() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = crate::test_helpers::build_test_state();
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("not_ready"));
+    }
+
+    #[tokio::test]
+    async fn health_ready_returns_200_when_cache_populated() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use std::collections::HashMap;
+        use tower::ServiceExt;
+
+        let target = crate::models::Target {
+            targets: vec!["10.0.0.1:9090".to_string()],
+            labels: HashMap::new(),
+        };
+        let state = crate::test_helpers::build_test_state_with_targets(vec![target]).await;
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("ready"));
+    }
+
+    #[tokio::test]
+    async fn health_returns_200_when_populated_and_no_refresh() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use std::collections::HashMap;
+        use tower::ServiceExt;
+
+        let target = crate::models::Target {
+            targets: vec!["10.0.0.1:9090".to_string()],
+            labels: HashMap::new(),
+        };
+        let state = crate::test_helpers::build_test_state_with_targets(vec![target]).await;
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Populated cache + no refresh outcome = "degraded"
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("degraded"));
+    }
 }

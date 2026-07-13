@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -56,7 +55,7 @@ pub(crate) fn build_test_state() -> AppState {
 
 /// Build a test AppState with pre-populated cache targets.
 pub(crate) async fn build_test_state_with_targets(targets: Vec<Target>) -> AppState {
-    let mut state = build_test_state();
+    let state = build_test_state();
     state.replace_cache_and_routing(targets).await;
     state
 }

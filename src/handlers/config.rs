@@ -164,4 +164,68 @@ mod tests {
             Some(0.75)
         );
     }
+
+    // --- Integration tests through full router ---
+
+    #[tokio::test]
+    async fn config_integration_returns_200() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = crate::test_helpers::build_test_state();
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn config_integration_returns_expected_keys() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = crate::test_helpers::build_test_state();
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json.get("clusters").is_some(), "missing 'clusters'");
+        assert!(json.get("listen").is_some(), "missing 'listen'");
+        assert!(json.get("refresh_interval").is_some(), "missing 'refresh_interval'");
+        assert!(json.get("metadata_level").is_some(), "missing 'metadata_level'");
+        assert!(json.get("mode").is_some(), "missing 'mode'");
+        assert!(json.get("node_id").is_some(), "missing 'node_id'");
+        assert!(json.get("refresh_token_set").is_some(), "missing 'refresh_token_set'");
+    }
+
+    #[tokio::test]
+    async fn config_integration_hides_refresh_token() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = crate::test_helpers::build_test_state();
+        let app = crate::routes::create_routes(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("refresh_token").is_none(), "refresh_token must NOT appear in response");
+    }
 }
