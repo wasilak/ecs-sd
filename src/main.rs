@@ -10,6 +10,9 @@ mod handlers;
 mod cluster;
 pub mod metrics;
 
+#[cfg(test)]
+mod test_helpers;
+
 use axum::Router;
 use axum::routing::get;
 use rand::RngExt as _;

@@ -751,6 +751,19 @@ impl DiscoveryService {
 }
 
 #[cfg(test)]
+impl DiscoveryService {
+    pub(crate) fn new_for_test(
+        ecs_client: aws_sdk_ecs::Client,
+        ec2_client: aws_sdk_ec2::Client,
+        account_id: impl Into<String>,
+        region: impl Into<String>,
+        metrics: std::sync::Arc<crate::metrics::MetricsState>,
+    ) -> Self {
+        Self { ecs_client, ec2_client, account_id: account_id.into(), region: region.into(), metrics }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use aws_sdk_ecs::types::{Attachment, KeyValuePair};

@@ -43,3 +43,9 @@ chitchat = "0.11.1"
 tokio-stream = { version = "0.1", features = ["sync"] }
 utoipa = "5.5"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
+
+[dev-dependencies]
+aws-smithy-mocks = "0.3.0"
+aws-sdk-ecs = { version = "=1.133.1", features = ["test-util"] }
+aws-sdk-ec2 = { version = "=1.236.0", features = ["test-util"] }
+aws-sdk-sts = { version = "1.103", features = ["test-util"] }
