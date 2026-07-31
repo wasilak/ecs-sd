@@ -17,16 +17,16 @@ pub fn route_id(task_arn: &str, container_name: &str, container_id: &str) -> Uui
 }
 
 fn resolve_identity_source(target: &Target, address: &str) -> String {
-    if let Some(container_id) = target.labels.get("__meta_ecs_container_id") {
-        if !container_id.is_empty() {
-            return container_id.clone();
-        }
+    if let Some(container_id) = target.labels.get("__meta_ecs_container_id")
+        && !container_id.is_empty()
+    {
+        return container_id.clone();
     }
 
-    if let Some(task_definition) = target.labels.get("__meta_ecs_task_definition") {
-        if !task_definition.is_empty() {
-            return task_definition.clone();
-        }
+    if let Some(task_definition) = target.labels.get("__meta_ecs_task_definition")
+        && !task_definition.is_empty()
+    {
+        return task_definition.clone();
     }
 
     address.to_string()
@@ -90,13 +90,28 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    fn make_target(address: &str, task_arn: &str, container_name: &str, container_id: &str) -> Target {
+    fn make_target(
+        address: &str,
+        task_arn: &str,
+        container_name: &str,
+        container_id: &str,
+    ) -> Target {
         let mut labels = HashMap::new();
         labels.insert("__meta_ecs_task_arn".to_string(), task_arn.to_string());
-        labels.insert("__meta_ecs_container_name".to_string(), container_name.to_string());
-        labels.insert("__meta_ecs_container_id".to_string(), container_id.to_string());
+        labels.insert(
+            "__meta_ecs_container_name".to_string(),
+            container_name.to_string(),
+        );
+        labels.insert(
+            "__meta_ecs_container_id".to_string(),
+            container_id.to_string(),
+        );
         Target {
-            targets: if address.is_empty() { vec![] } else { vec![address.to_string()] },
+            targets: if address.is_empty() {
+                vec![]
+            } else {
+                vec![address.to_string()]
+            },
             labels,
         }
     }

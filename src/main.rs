@@ -1,14 +1,14 @@
-mod error;
-mod config;
-mod openapi;
-mod state;
 mod aws;
-mod models;
-mod middleware;
-mod routes;
-mod handlers;
 mod cluster;
+mod config;
+mod error;
+mod handlers;
 pub mod metrics;
+mod middleware;
+mod models;
+mod openapi;
+mod routes;
+mod state;
 
 #[cfg(test)]
 mod test_helpers;
@@ -25,11 +25,11 @@ use tokio::time::MissedTickBehavior;
 use tracing::info;
 use tracing::warn;
 
-use chitchat::{spawn_chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig};
-use chitchat::transport::UdpTransport;
 use crate::cluster::{ClusterState, GossipProxyTarget};
-use crate::config::{Config, ClusterMode};
+use crate::config::{ClusterMode, Config};
 use crate::state::{AppState, RefreshOutcome};
+use chitchat::transport::UdpTransport;
+use chitchat::{ChitchatConfig, ChitchatId, FailureDetectorConfig, spawn_chitchat};
 
 fn require_region(region: Option<String>) -> Result<String, String> {
     match region {
@@ -84,14 +84,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let chitchat_id = ChitchatId {
                 node_id: config.node_id.clone().into(),
                 generation_id: rand::random::<u64>(),
-                gossip_advertise_addr: format!("0.0.0.0:{}", config.gossip_port).parse()
+                gossip_advertise_addr: format!("0.0.0.0:{}", config.gossip_port)
+                    .parse()
                     .expect("gossip_port is validated at config parse time"),
             };
             let cc_config = ChitchatConfig {
                 chitchat_id,
                 cluster_id: "ecs-sd".to_string(),
                 gossip_interval: std::time::Duration::from_secs(1),
-                listen_addr: format!("0.0.0.0:{}", config.gossip_port).parse()
+                listen_addr: format!("0.0.0.0:{}", config.gossip_port)
+                    .parse()
                     .expect("gossip_port is validated at config parse time"),
                 seed_nodes: config.cluster_seeds.clone(),
                 failure_detector_config: FailureDetectorConfig::default(),
@@ -99,16 +101,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 catchup_callback: None,
                 extra_liveness_predicate: None,
             };
-            let handle = spawn_chitchat(cc_config, vec![], &UdpTransport).await
-                .map_err(|e| { eprintln!("Failed to start gossip: {}", e); std::process::exit(1) })?;
-            info!("Gossip node {} started on port {}", config.node_id, config.gossip_port);
-            Some(std::sync::Arc::new(ClusterState { handle, self_id: config.node_id.clone() }))
+            let handle = spawn_chitchat(cc_config, vec![], &UdpTransport)
+                .await
+                .map_err(|e| {
+                    eprintln!("Failed to start gossip: {}", e);
+                    std::process::exit(1)
+                })?;
+            info!(
+                "Gossip node {} started on port {}",
+                config.node_id, config.gossip_port
+            );
+            Some(std::sync::Arc::new(ClusterState {
+                handle,
+                self_id: config.node_id.clone(),
+            }))
         }
     };
 
     // Initialize metrics state
-    let metrics = Arc::new(crate::metrics::MetricsState::new()
-        .expect("failed to initialize metrics"));
+    let metrics =
+        Arc::new(crate::metrics::MetricsState::new().expect("failed to initialize metrics"));
 
     // Create shared state
     let state = AppState::new(
@@ -129,12 +141,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform initial discovery — leader only (or standalone)
     let should_discover = match &state.cluster {
-        None => true,  // standalone always discovers
+        None => true, // standalone always discovers
         Some(c) => c.is_leader().await,
     };
     if should_discover {
         info!("Performing initial discovery...");
-        match state.discovery.discover_all_clusters(&config.clusters, config.mode.clone()).await {
+        match state
+            .discovery
+            .discover_all_clusters(&config.clusters, config.mode.clone())
+            .await
+        {
             Ok(targets_aws) => {
                 state.replace_cache_and_record_metrics(targets_aws).await;
                 state.record_startup_duration_once();
@@ -146,7 +162,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
             Err(e) => {
-                warn!("Initial discovery failed — starting with empty cache: {}", e);
+                warn!(
+                    "Initial discovery failed — starting with empty cache: {}",
+                    e
+                );
                 *state.last_refresh_outcome.write().await = Some(RefreshOutcome {
                     success: false,
                     timestamp_unix: unix_now(),
@@ -159,19 +178,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let refresh_handle = spawn_background_refresh(state.clone(), shutdown_rx.clone());
-    let follower_sync_handle = state.cluster.as_ref().map(|c| {
-        spawn_follower_sync(state.clone(), c.clone(), shutdown_rx.clone())
-    });
+    let follower_sync_handle = state
+        .cluster
+        .as_ref()
+        .map(|c| spawn_follower_sync(state.clone(), c.clone(), shutdown_rx.clone()));
 
     // Build router
     let app = Router::new()
         .merge(routes::create_routes(state.clone()))
         .merge(
-            utoipa_swagger_ui::SwaggerUi::new("/swagger-ui")
-                .url("/openapi.json", {
-                    use utoipa::OpenApi;
-                    crate::openapi::ApiDoc::openapi()
-                })
+            utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url("/openapi.json", {
+                use utoipa::OpenApi;
+                crate::openapi::ApiDoc::openapi()
+            }),
         )
         .with_state(state.clone());
 
@@ -213,20 +232,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         warn!("background refresh task failed to join: {}", error);
     }
 
-    if let Some(handle) = follower_sync_handle {
-        if let Err(e) = handle.await {
-            warn!("follower sync task failed to join: {}", e);
-        }
+    if let Some(handle) = follower_sync_handle
+        && let Err(e) = handle.await
+    {
+        warn!("follower sync task failed to join: {}", e);
     }
 
     // Shut down gossip node
-    if let Some(cluster) = state.cluster {
-        if let Ok(cluster) = std::sync::Arc::try_unwrap(cluster) {
-            if let Err(e) = cluster.handle.shutdown().await {
-                warn!("gossip shutdown error: {}", e);
-            } else {
-                info!("Gossip node shut down");
-            }
+    if let Some(cluster) = state.cluster
+        && let Ok(cluster) = std::sync::Arc::try_unwrap(cluster)
+    {
+        if let Err(e) = cluster.handle.shutdown().await {
+            warn!("gossip shutdown error: {}", e);
+        } else {
+            info!("Gossip node shut down");
         }
     }
 
@@ -250,11 +269,11 @@ fn spawn_background_refresh(
                     }
 
                     // Skip refresh if this is a follower node
-                    if let Some(ref cluster) = state.cluster {
-                        if !cluster.is_leader().await {
-                            // Follower: cache is managed by follower sync task
-                            continue;
-                        }
+                    if let Some(ref cluster) = state.cluster
+                        && !cluster.is_leader().await
+                    {
+                        // Follower: cache is managed by follower sync task
+                        continue;
                     }
 
                     let jitter_factor = rand::rng().random_range(-0.10..=0.10);
@@ -376,19 +395,25 @@ async fn shutdown_signal(shutdown_tx: watch::Sender<bool>) {
 }
 
 async fn publish_cache_to_gossip(state: &AppState) {
-    let Some(ref cluster) = state.cluster else { return };
+    let Some(ref cluster) = state.cluster else {
+        return;
+    };
     let snap = state.snapshot.read().await;
-    if let Some(targets) = snap.cache.get(&crate::models::MetadataLevel::Aws) {
-        if let Ok(json) = serde_json::to_string(targets) {
-            cluster.publish_cache(&json).await;
-        }
+    if let Some(targets) = snap.cache.get(&crate::models::MetadataLevel::Aws)
+        && let Ok(json) = serde_json::to_string(targets)
+    {
+        cluster.publish_cache(&json).await;
     }
     if state.config.mode == crate::config::Mode::Proxy {
-        let gossip_rt: Vec<GossipProxyTarget> = snap.routing_table.values().map(|pt| GossipProxyTarget {
-            route_id: pt.route_id.to_string(),
-            address: pt.address.clone(),
-            labels: pt.labels.clone(),
-        }).collect();
+        let gossip_rt: Vec<GossipProxyTarget> = snap
+            .routing_table
+            .values()
+            .map(|pt| GossipProxyTarget {
+                route_id: pt.route_id.to_string(),
+                address: pt.address.clone(),
+                labels: pt.labels.clone(),
+            })
+            .collect();
         if let Ok(json) = serde_json::to_string(&gossip_rt) {
             cluster.publish_routing(&json).await;
         }
@@ -500,8 +525,14 @@ mod tests {
         let token_three = ["try", "send"].join("_");
 
         for token in [token_one, token_two, token_three] {
-            assert!(!main_src.contains(&token), "main.rs must not contain {token}");
-            assert!(!sd_src.contains(&token), "handlers/sd.rs must not contain {token}");
+            assert!(
+                !main_src.contains(&token),
+                "main.rs must not contain {token}"
+            );
+            assert!(
+                !sd_src.contains(&token),
+                "handlers/sd.rs must not contain {token}"
+            );
         }
     }
 
@@ -533,7 +564,13 @@ mod tests {
         let sd_count = sd_src.matches("record_startup_duration_once()").count();
 
         // 3 call sites + self-references in this test = at least 7 total in main.rs
-        assert!(main_count >= 3, "main.rs must have at least 3 record_startup_duration_once() calls (initial discovery, background refresh, follower sync), found {main_count}");
-        assert!(sd_count >= 1, "handlers/sd.rs must have at least 1 record_startup_duration_once() call (manual refresh), found {sd_count}");
+        assert!(
+            main_count >= 3,
+            "main.rs must have at least 3 record_startup_duration_once() calls (initial discovery, background refresh, follower sync), found {main_count}"
+        );
+        assert!(
+            sd_count >= 1,
+            "handlers/sd.rs must have at least 1 record_startup_duration_once() call (manual refresh), found {sd_count}"
+        );
     }
 }

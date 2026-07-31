@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use serde::Serialize;
 
 use crate::state::AppState;
@@ -26,7 +26,7 @@ impl From<&crate::config::Config> for ConfigResponse {
             clusters: config.clusters.clone(),
             listen: config.listen.clone(),
             refresh_interval: config.refresh_interval,
-            metadata_level: config.metadata_level.clone(),
+            metadata_level: config.metadata_level,
             mode: config.mode.clone(),
             cluster_mode: config.cluster_mode.clone(),
             gossip_port: config.gossip_port,
@@ -49,10 +49,11 @@ impl From<&crate::config::Config> for ConfigResponse {
         (status = 200, description = "Service configuration", body = ConfigResponse)
     )
 )]
-pub async fn config_handler(
-    State(state): State<AppState>,
-) -> (StatusCode, Json<ConfigResponse>) {
-    (StatusCode::OK, Json(ConfigResponse::from(state.config.as_ref())))
+pub async fn config_handler(State(state): State<AppState>) -> (StatusCode, Json<ConfigResponse>) {
+    (
+        StatusCode::OK,
+        Json(ConfigResponse::from(state.config.as_ref())),
+    )
 }
 
 #[cfg(test)]
@@ -101,11 +102,7 @@ mod tests {
         ];
 
         for key in &expected_keys {
-            assert!(
-                json.get(*key).is_some(),
-                "missing expected key: {}",
-                key
-            );
+            assert!(json.get(*key).is_some(), "missing expected key: {}", key);
         }
     }
 
@@ -133,7 +130,10 @@ mod tests {
         let response = ConfigResponse::from(&config);
         let json = serde_json::to_value(&response).unwrap();
 
-        assert_eq!(json.get("refresh_token_set").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            json.get("refresh_token_set").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert!(
             json.get("refresh_token").is_none(),
             "refresh_token must NOT appear in serialized output"
@@ -148,7 +148,7 @@ mod tests {
         };
         let response = ConfigResponse::from(&config);
 
-        assert_eq!(response.refresh_token_set, false);
+        assert!(!response.refresh_token_set);
     }
 
     #[test]
@@ -177,7 +177,12 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/config").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/config")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -186,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn config_integration_returns_expected_keys() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use tower::ServiceExt;
 
@@ -194,7 +199,12 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/config").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/config")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -203,16 +213,25 @@ mod tests {
 
         assert!(json.get("clusters").is_some(), "missing 'clusters'");
         assert!(json.get("listen").is_some(), "missing 'listen'");
-        assert!(json.get("refresh_interval").is_some(), "missing 'refresh_interval'");
-        assert!(json.get("metadata_level").is_some(), "missing 'metadata_level'");
+        assert!(
+            json.get("refresh_interval").is_some(),
+            "missing 'refresh_interval'"
+        );
+        assert!(
+            json.get("metadata_level").is_some(),
+            "missing 'metadata_level'"
+        );
         assert!(json.get("mode").is_some(), "missing 'mode'");
         assert!(json.get("node_id").is_some(), "missing 'node_id'");
-        assert!(json.get("refresh_token_set").is_some(), "missing 'refresh_token_set'");
+        assert!(
+            json.get("refresh_token_set").is_some(),
+            "missing 'refresh_token_set'"
+        );
     }
 
     #[tokio::test]
     async fn config_integration_hides_refresh_token() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use tower::ServiceExt;
 
@@ -220,12 +239,20 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/config").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/config")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json.get("refresh_token").is_none(), "refresh_token must NOT appear in response");
+        assert!(
+            json.get("refresh_token").is_none(),
+            "refresh_token must NOT appear in response"
+        );
     }
 }

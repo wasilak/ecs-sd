@@ -10,7 +10,9 @@ use uuid::Uuid;
 use crate::aws::DiscoveryService;
 use crate::config::{Config, Mode};
 use crate::error::DiscoveryError;
-use crate::models::{build_routing_table, filter_labels_by_level, MetadataLevel, ProxyTarget, Target};
+use crate::models::{
+    MetadataLevel, ProxyTarget, Target, build_routing_table, filter_labels_by_level,
+};
 
 #[derive(Clone)]
 pub struct CacheSnapshot {
@@ -34,19 +36,31 @@ fn build_snapshot(targets_aws: Vec<Target>, mode: Mode) -> CacheSnapshot {
     cache.insert(MetadataLevel::Aws, targets_aws.clone());
     cache.insert(
         MetadataLevel::Cluster,
-        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Cluster)).collect(),
+        targets_aws
+            .iter()
+            .map(|t| filter_labels_by_level(t, MetadataLevel::Cluster))
+            .collect(),
     );
     cache.insert(
         MetadataLevel::Service,
-        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Service)).collect(),
+        targets_aws
+            .iter()
+            .map(|t| filter_labels_by_level(t, MetadataLevel::Service))
+            .collect(),
     );
     cache.insert(
         MetadataLevel::Task,
-        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Task)).collect(),
+        targets_aws
+            .iter()
+            .map(|t| filter_labels_by_level(t, MetadataLevel::Task))
+            .collect(),
     );
     cache.insert(
         MetadataLevel::Container,
-        targets_aws.iter().map(|t| filter_labels_by_level(t, MetadataLevel::Container)).collect(),
+        targets_aws
+            .iter()
+            .map(|t| filter_labels_by_level(t, MetadataLevel::Container))
+            .collect(),
     );
 
     let routing_table = if mode == Mode::Proxy {
@@ -145,6 +159,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         config: Config,
         ecs_client: aws_sdk_ecs::Client,
@@ -199,7 +214,8 @@ impl AppState {
     pub async fn replace_cache_and_record_metrics(&self, targets_aws: Vec<Target>) {
         let (old_addresses, old_targets): (HashSet<String>, Vec<Target>) = {
             let snap = self.snapshot.read().await;
-            let old_targets = snap.cache
+            let old_targets = snap
+                .cache
                 .get(&MetadataLevel::Aws)
                 .cloned()
                 .unwrap_or_default();
@@ -223,7 +239,11 @@ impl AppState {
             .collect();
 
         // CHURN-01: Guard against excessive target drop
-        if churn_guard_should_discard(&old_addresses, &new_addresses, self.config.max_target_drop_ratio) {
+        if churn_guard_should_discard(
+            &old_addresses,
+            &new_addresses,
+            self.config.max_target_drop_ratio,
+        ) {
             let drop_count = old_addresses.difference(&new_addresses).count();
             warn!(
                 drop_count,
@@ -276,7 +296,10 @@ mod tests {
                 targets: vec!["10.0.0.1:8080".to_string()],
                 labels: {
                     let mut m = HashMap::new();
-                    m.insert("__meta_ecs_task_arn".to_string(), "arn:aws:ecs:us-east-1:123:task/cluster/task1".to_string());
+                    m.insert(
+                        "__meta_ecs_task_arn".to_string(),
+                        "arn:aws:ecs:us-east-1:123:task/cluster/task1".to_string(),
+                    );
                     m.insert("__meta_ecs_container_name".to_string(), "app1".to_string());
                     m.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
                     m.insert("__meta_ecs_service_name".to_string(), "api".to_string());
@@ -288,11 +311,17 @@ mod tests {
                 targets: vec!["10.0.0.2:8080".to_string()],
                 labels: {
                     let mut m = HashMap::new();
-                    m.insert("__meta_ecs_task_arn".to_string(), "arn:aws:ecs:us-east-1:123:task/cluster/task2".to_string());
+                    m.insert(
+                        "__meta_ecs_task_arn".to_string(),
+                        "arn:aws:ecs:us-east-1:123:task/cluster/task2".to_string(),
+                    );
                     m.insert("__meta_ecs_container_name".to_string(), "app2".to_string());
                     m.insert("__meta_ecs_cluster_name".to_string(), "prod".to_string());
                     m.insert("__meta_ecs_service_name".to_string(), "worker".to_string());
-                    m.insert("__meta_ecs_task_family".to_string(), "worker-task".to_string());
+                    m.insert(
+                        "__meta_ecs_task_family".to_string(),
+                        "worker-task".to_string(),
+                    );
                     m
                 },
             },
@@ -315,11 +344,18 @@ mod tests {
             MetadataLevel::Task,
             MetadataLevel::Container,
         ] {
-            assert!(snap.cache.contains_key(&level), "tier {:?} must be present", level);
+            assert!(
+                snap.cache.contains_key(&level),
+                "tier {:?} must be present",
+                level
+            );
         }
 
         // Proxy mode: routing_table is non-empty and size matches input
-        assert!(!snap.routing_table.is_empty(), "routing_table must be non-empty in proxy mode");
+        assert!(
+            !snap.routing_table.is_empty(),
+            "routing_table must be non-empty in proxy mode"
+        );
         assert_eq!(
             snap.routing_table.len(),
             targets.len(),
@@ -451,7 +487,10 @@ mod tests {
             .find(|f| f.name() == "ecs_sd_startup_duration_seconds")
             .expect("ecs_sd_startup_duration_seconds gauge must exist");
         let gauge_value = family.get_metric()[0].get_gauge().value();
-        assert!(gauge_value > 0.0, "startup duration must be > 0, got {gauge_value}");
+        assert!(
+            gauge_value > 0.0,
+            "startup duration must be > 0, got {gauge_value}"
+        );
     }
 
     #[test]

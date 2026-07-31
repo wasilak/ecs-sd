@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use axum::{
+    Json,
     body::Body,
     extract::{Path, State},
     http::{HeaderMap, HeaderName, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 use tracing::{debug, warn};
@@ -40,12 +40,7 @@ pub(crate) fn filter_sensitive_headers(mut headers: HeaderMap, allow_sensitive: 
         return headers;
     }
 
-    const SENSITIVE_HEADERS: &[&str] = &[
-        "authorization",
-        "cookie",
-        "set-cookie",
-        "x-api-key",
-    ];
+    const SENSITIVE_HEADERS: &[&str] = &["authorization", "cookie", "set-cookie", "x-api-key"];
 
     for name in SENSITIVE_HEADERS {
         headers.remove(HeaderName::from_static(name));
@@ -110,7 +105,7 @@ pub async fn proxy_handler(
                 StatusCode::BAD_REQUEST,
                 Json(json!({"error": "invalid route id"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -126,7 +121,7 @@ pub async fn proxy_handler(
                 StatusCode::NOT_FOUND,
                 Json(json!({"error": "route not found"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -145,7 +140,8 @@ pub async fn proxy_handler(
 
     // Strip hop-by-hop headers before forwarding.
     let forwarded = filter_hop_by_hop_headers(headers);
-    let forwarded = filter_sensitive_headers(forwarded, state.config.proxy_forward_sensitive_headers);
+    let forwarded =
+        filter_sensitive_headers(forwarded, state.config.proxy_forward_sensitive_headers);
 
     // Start timer for proxy metrics
     let timer = state.metrics.proxy_duration.start_timer();
@@ -162,7 +158,9 @@ pub async fn proxy_handler(
         Ok(r) => r,
         Err(e) => {
             timer.observe_duration();
-            state.metrics.proxy_requests
+            state
+                .metrics
+                .proxy_requests
                 .with_label_values(&["502"])
                 .inc();
             warn!(upstream_url = %upstream_url, error = %e, "upstream request failed");
@@ -177,7 +175,9 @@ pub async fn proxy_handler(
     // Stream response back: copy status + headers from upstream.
     let status = upstream_resp.status();
     timer.observe_duration();
-    state.metrics.proxy_requests
+    state
+        .metrics
+        .proxy_requests
         .with_label_values(&[&status.as_u16().to_string()])
         .inc();
     let upstream_headers = upstream_resp.headers().clone();
@@ -189,7 +189,11 @@ pub async fn proxy_handler(
         .body(Body::from_stream(upstream_resp.bytes_stream()))
         .unwrap_or_else(|e| {
             warn!(error = %e, "failed to construct proxy response");
-            (StatusCode::INTERNAL_SERVER_ERROR, "response construction failed").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "response construction failed",
+            )
+                .into_response()
         })
 }
 
@@ -207,7 +211,10 @@ mod tests {
             "x-prometheus-scrape-timeout-seconds",
             HeaderValue::from_static("10.5"),
         );
-        assert_eq!(parse_scrape_timeout(&headers), Duration::from_secs_f64(10.5));
+        assert_eq!(
+            parse_scrape_timeout(&headers),
+            Duration::from_secs_f64(10.5)
+        );
     }
 
     #[test]
@@ -278,10 +285,7 @@ mod tests {
     #[test]
     fn filter_hop_by_hop_preserves_authorization() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            HeaderValue::from_static("Bearer tok"),
-        );
+        headers.insert("authorization", HeaderValue::from_static("Bearer tok"));
         let result = filter_hop_by_hop_headers(headers);
         assert!(result.contains_key("authorization"));
     }

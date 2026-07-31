@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use tokio::sync::RwLock;
 
 use crate::aws::DiscoveryService;
@@ -33,7 +33,11 @@ pub(crate) fn build_test_state() -> AppState {
     );
 
     let discovery = DiscoveryService::new_for_test(
-        ecs_client, ec2_client, "123456789012", "us-east-1", Arc::clone(&metrics),
+        ecs_client,
+        ec2_client,
+        "123456789012",
+        "us-east-1",
+        Arc::clone(&metrics),
     );
 
     let config = Config::default();

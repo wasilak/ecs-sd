@@ -401,6 +401,7 @@ Labels included in `/sd` responses by metadata level:
 | `__meta_ecs_container_name` | Container name from task definition |
 | `__meta_ecs_container_image` | Container image |
 | `__meta_ecs_metrics_port` | Port from `prometheus.io/port` label |
+| `__meta_ecs_host_port` | ECS bridge-mode host port from `networkBindings`, when available |
 
 ### Task Level
 

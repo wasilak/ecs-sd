@@ -1,5 +1,10 @@
-use axum::{extract::State, response::{IntoResponse, Response}, http::StatusCode, body::Body};
-use prometheus::{TextEncoder, Encoder};
+use axum::{
+    body::Body,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use prometheus::{Encoder, TextEncoder};
 
 use crate::state::AppState;
 
@@ -15,7 +20,10 @@ use crate::state::AppState;
 )]
 pub async fn metrics_handler(State(state): State<AppState>) -> Response {
     // Update cache age gauge
-    let last_refresh = { let snap = state.snapshot.read().await; snap.last_refresh };
+    let last_refresh = {
+        let snap = state.snapshot.read().await;
+        snap.last_refresh
+    };
     let age_secs = std::time::SystemTime::now()
         .duration_since(last_refresh)
         .unwrap_or_default()
@@ -31,14 +39,17 @@ pub async fn metrics_handler(State(state): State<AppState>) -> Response {
         drop(cc); // Release lock before calling is_leader
 
         let is_leader = cluster.is_leader().await;
-        state.metrics.cluster_is_leader.set(if is_leader { 1.0 } else { 0.0 });
+        state
+            .metrics
+            .cluster_is_leader
+            .set(if is_leader { 1.0 } else { 0.0 });
     }
 
     // Gather and encode metrics
     let encoder = TextEncoder::new();
     let metric_families = state.metrics.registry.gather();
     let mut buffer = vec![];
-    
+
     if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
         tracing::warn!(error = %e, "metrics encoding error");
         return Response::builder()
@@ -54,6 +65,10 @@ pub async fn metrics_handler(State(state): State<AppState>) -> Response {
         .header("Content-Type", encoder.format_type())
         .body(Body::from(buffer))
         .unwrap_or_else(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, "failed to build metrics response").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to build metrics response",
+            )
+                .into_response()
         })
 }

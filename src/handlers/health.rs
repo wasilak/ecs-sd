@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use serde::Serialize;
 
 use crate::state::{AppState, RefreshOutcome};
@@ -76,9 +76,7 @@ fn determine_readiness_status(target_count: usize) -> (&'static str, StatusCode)
         (status = 503, description = "Service is starting — cache empty and last refresh failed", body = HealthResponse)
     )
 )]
-pub async fn health_handler(
-    State(state): State<AppState>,
-) -> (StatusCode, Json<HealthResponse>) {
+pub async fn health_handler(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
     let (target_count, age_seconds) = {
         let snap = state.snapshot.read().await;
         let target_count = snap
@@ -117,7 +115,11 @@ pub async fn health_handler(
         crate::config::ClusterMode::Cluster => "cluster",
     };
 
-    let cache_state = if target_count > 0 { "populated" } else { "empty" };
+    let cache_state = if target_count > 0 {
+        "populated"
+    } else {
+        "empty"
+    };
 
     let (last_refresh_status, last_refresh_timestamp) = match &last_outcome {
         Some(o) if o.success => ("ok", Some(o.timestamp_unix)),
@@ -197,7 +199,10 @@ mod tests {
 
     #[test]
     fn determine_health_status_healthy_when_populated_and_success() {
-        let outcome = Some(RefreshOutcome { success: true, timestamp_unix: 100 });
+        let outcome = Some(RefreshOutcome {
+            success: true,
+            timestamp_unix: 100,
+        });
         let (status, code) = determine_health_status(5, &outcome);
         assert_eq!(status, "healthy");
         assert_eq!(code, StatusCode::OK);
@@ -205,7 +210,10 @@ mod tests {
 
     #[test]
     fn determine_health_status_degraded_when_populated_and_failed() {
-        let outcome = Some(RefreshOutcome { success: false, timestamp_unix: 100 });
+        let outcome = Some(RefreshOutcome {
+            success: false,
+            timestamp_unix: 100,
+        });
         let (status, code) = determine_health_status(5, &outcome);
         assert_eq!(status, "degraded");
         assert_eq!(code, StatusCode::OK);
@@ -220,7 +228,10 @@ mod tests {
 
     #[test]
     fn determine_health_status_starting_503_when_empty_and_failed() {
-        let outcome = Some(RefreshOutcome { success: false, timestamp_unix: 100 });
+        let outcome = Some(RefreshOutcome {
+            success: false,
+            timestamp_unix: 100,
+        });
         let (status, code) = determine_health_status(0, &outcome);
         assert_eq!(status, "starting");
         assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
@@ -228,7 +239,10 @@ mod tests {
 
     #[test]
     fn determine_health_status_starting_200_when_empty_and_success() {
-        let outcome = Some(RefreshOutcome { success: true, timestamp_unix: 100 });
+        let outcome = Some(RefreshOutcome {
+            success: true,
+            timestamp_unix: 100,
+        });
         let (status, code) = determine_health_status(0, &outcome);
         assert_eq!(status, "starting");
         assert_eq!(code, StatusCode::OK);
@@ -293,28 +307,43 @@ mod tests {
 
         assert!(json.get("status").is_some(), "missing top-level 'status'");
         assert!(json.get("version").is_some(), "missing top-level 'version'");
-        assert!(json.get("uptime_seconds").is_some(), "missing top-level 'uptime_seconds'");
+        assert!(
+            json.get("uptime_seconds").is_some(),
+            "missing top-level 'uptime_seconds'"
+        );
 
         let cache = json.get("cache").expect("missing 'cache'");
         assert!(cache.get("targets").is_some(), "missing cache.targets");
-        assert!(cache.get("age_seconds").is_some(), "missing cache.age_seconds");
+        assert!(
+            cache.get("age_seconds").is_some(),
+            "missing cache.age_seconds"
+        );
         assert!(cache.get("state").is_some(), "missing cache.state");
 
         let cluster = json.get("cluster").expect("missing 'cluster'");
         assert!(cluster.get("mode").is_some(), "missing cluster.mode");
         assert!(cluster.get("nodes").is_some(), "missing cluster.nodes");
-        assert!(cluster.get("is_leader").is_some(), "missing cluster.is_leader");
+        assert!(
+            cluster.get("is_leader").is_some(),
+            "missing cluster.is_leader"
+        );
 
         let last_refresh = json.get("last_refresh").expect("missing 'last_refresh'");
-        assert!(last_refresh.get("status").is_some(), "missing last_refresh.status");
-        assert!(last_refresh.get("timestamp").is_some(), "missing last_refresh.timestamp");
+        assert!(
+            last_refresh.get("status").is_some(),
+            "missing last_refresh.status"
+        );
+        assert!(
+            last_refresh.get("timestamp").is_some(),
+            "missing last_refresh.timestamp"
+        );
     }
 
     // --- Integration tests through full router ---
 
     #[tokio::test]
     async fn health_live_handler_integration_returns_200() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use tower::ServiceExt;
 
@@ -322,7 +351,12 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/health/live").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health/live")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -334,7 +368,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_ready_returns_503_when_cache_empty() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use tower::ServiceExt;
 
@@ -342,19 +376,27 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("not_ready"));
+        assert_eq!(
+            json.get("status").and_then(|v| v.as_str()),
+            Some("not_ready")
+        );
     }
 
     #[tokio::test]
     async fn health_ready_returns_200_when_cache_populated() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use std::collections::HashMap;
         use tower::ServiceExt;
@@ -367,7 +409,12 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -379,7 +426,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_returns_200_when_populated_and_no_refresh() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use std::collections::HashMap;
         use tower::ServiceExt;
@@ -392,7 +439,12 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -400,6 +452,9 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         // Populated cache + no refresh outcome = "degraded"
-        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("degraded"));
+        assert_eq!(
+            json.get("status").and_then(|v| v.as_str()),
+            Some("degraded")
+        );
     }
 }

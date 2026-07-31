@@ -17,6 +17,28 @@ fn extract_fargate_private_ip(task: &aws_sdk_ecs::types::Task) -> Option<&str> {
         .and_then(|d| d.value())
 }
 
+fn bridge_host_port(
+    task: &aws_sdk_ecs::types::Task,
+    container_name: Option<&str>,
+    container_port: u16,
+) -> Option<u16> {
+    task.containers()
+        .iter()
+        .filter(|container| container_name.is_none_or(|name| container.name() == Some(name)))
+        .flat_map(|container| container.network_bindings())
+        .find(|binding| binding.container_port() == Some(container_port.into()))
+        .and_then(|binding| binding.host_port())
+        .and_then(|port| u16::try_from(port).ok())
+}
+
+fn bridge_target_port(
+    task: &aws_sdk_ecs::types::Task,
+    container_name: Option<&str>,
+    container_port: u16,
+) -> u16 {
+    bridge_host_port(task, container_name, container_port).unwrap_or(container_port)
+}
+
 fn task_definition_from_cache(
     cache: &HashMap<String, aws_sdk_ecs::types::TaskDefinition>,
     task_definition_arn: &str,
@@ -70,7 +92,11 @@ fn missing_ec2_instance_ids(
     missing
 }
 
-fn apply_page(items: &mut Vec<String>, page_items: &[String], next_token: Option<&str>) -> Option<String> {
+fn apply_page(
+    items: &mut Vec<String>,
+    page_items: &[String],
+    next_token: Option<&str>,
+) -> Option<String> {
     items.extend(page_items.iter().cloned());
     next_token.map(|s| s.to_string())
 }
@@ -82,14 +108,9 @@ fn aggregate_cluster_results(
     let mut all_targets = Vec::new();
     let mut any_succeeded = false;
 
-    for result in per_cluster {
-        match result {
-            Ok(targets) => {
-                any_succeeded = true;
-                all_targets.extend(targets);
-            }
-            Err(_) => {}
-        }
+    for targets in per_cluster.into_iter().flatten() {
+        any_succeeded = true;
+        all_targets.extend(targets);
     }
 
     if attempted > 0 && !any_succeeded {
@@ -128,7 +149,10 @@ impl DiscoveryService {
         region: String,
         metrics: std::sync::Arc<crate::metrics::MetricsState>,
     ) -> Result<Self, DiscoveryError> {
-        metrics.aws_api_calls_total.with_label_values(&["get_caller_identity"]).inc();
+        metrics
+            .aws_api_calls_total
+            .with_label_values(&["get_caller_identity"])
+            .inc();
         let caller_identity = sts_client
             .get_caller_identity()
             .send()
@@ -158,7 +182,9 @@ impl DiscoveryService {
 
         for cluster_name in cluster_names {
             info!("Discovering cluster: {}", cluster_name);
-            let result = self.discover_cluster_targets(cluster_name, mode.clone()).await;
+            let result = self
+                .discover_cluster_targets(cluster_name, mode.clone())
+                .await;
             match &result {
                 Ok(targets) => {
                     info!(
@@ -192,7 +218,10 @@ impl DiscoveryService {
         let mut container_instance_to_ec2_id_cache: HashMap<String, String> = HashMap::new();
         let mut ec2_instance_cache: HashMap<String, Ec2InstanceInfo> = HashMap::new();
 
-        self.metrics.aws_api_calls_total.with_label_values(&["describe_clusters"]).inc();
+        self.metrics
+            .aws_api_calls_total
+            .with_label_values(&["describe_clusters"])
+            .inc();
         let clusters = self
             .ecs_client
             .describe_clusters()
@@ -213,10 +242,17 @@ impl DiscoveryService {
         let cluster_name = cluster.cluster_name().unwrap_or(cluster_name);
 
         let service_arns = self.list_all_services(cluster_arn).await?;
-        debug!("Found {} services in cluster {}", service_arns.len(), cluster_name);
+        debug!(
+            "Found {} services in cluster {}",
+            service_arns.len(),
+            cluster_name
+        );
 
         for service_arn_chunk in service_arns.chunks(10) {
-            self.metrics.aws_api_calls_total.with_label_values(&["describe_services"]).inc();
+            self.metrics
+                .aws_api_calls_total
+                .with_label_values(&["describe_services"])
+                .inc();
             let services = self
                 .ecs_client
                 .describe_services()
@@ -236,7 +272,10 @@ impl DiscoveryService {
                 }
 
                 for task_chunk in task_arns.chunks(100) {
-                    self.metrics.aws_api_calls_total.with_label_values(&["describe_tasks"]).inc();
+                    self.metrics
+                        .aws_api_calls_total
+                        .with_label_values(&["describe_tasks"])
+                        .inc();
                     let tasks = self
                         .ecs_client
                         .describe_tasks()
@@ -257,13 +296,12 @@ impl DiscoveryService {
                         .filter_map(|task| task.container_instance_arn().map(|s| s.to_string()))
                         .collect();
 
-                    self
-                        .populate_container_instance_to_ec2_id_cache(
-                            cluster_arn,
-                            &container_instance_arns,
-                            &mut container_instance_to_ec2_id_cache,
-                        )
-                        .await?;
+                    self.populate_container_instance_to_ec2_id_cache(
+                        cluster_arn,
+                        &container_instance_arns,
+                        &mut container_instance_to_ec2_id_cache,
+                    )
+                    .await?;
 
                     let missing_ids = missing_ec2_instance_ids(
                         &container_instance_to_ec2_id_cache,
@@ -271,13 +309,14 @@ impl DiscoveryService {
                         &container_instance_arns,
                     );
 
-                    self
-                        .populate_ec2_instance_cache(&missing_ids, &mut ec2_instance_cache)
+                    self.populate_ec2_instance_cache(&missing_ids, &mut ec2_instance_cache)
                         .await?;
 
                     for task in tasks.tasks() {
                         if task.launch_type() != Some(&LaunchType::Ec2) {
-                            if mode == Mode::Proxy && task.launch_type() == Some(&LaunchType::Fargate) {
+                            if mode == Mode::Proxy
+                                && task.launch_type() == Some(&LaunchType::Fargate)
+                            {
                                 // Fargate: extract private IP from ENI, build target without EC2 metadata
                                 if let Some(private_ip) = extract_fargate_private_ip(task) {
                                     // Fargate tasks always use awsvpc network mode
@@ -286,7 +325,10 @@ impl DiscoveryService {
                                     let task_def_arn = match task.task_definition_arn() {
                                         Some(a) => a,
                                         None => {
-                                            warn!("Fargate task {:?} has no task_definition_arn", task.task_arn());
+                                            warn!(
+                                                "Fargate task {:?} has no task_definition_arn",
+                                                task.task_arn()
+                                            );
                                             continue;
                                         }
                                     };
@@ -343,7 +385,10 @@ impl DiscoveryService {
                                         targets.push(Target::new(private_ip, port, labels));
                                     }
                                 } else {
-                                    warn!("Fargate task {:?} has no ENI private IP, skipping", task.task_arn());
+                                    warn!(
+                                        "Fargate task {:?} has no ENI private IP, skipping",
+                                        task.task_arn()
+                                    );
                                 }
                             } else {
                                 debug!("Skipping non-EC2/non-Fargate task: {:?}", task.task_arn());
@@ -351,10 +396,10 @@ impl DiscoveryService {
                             continue;
                         }
 
-                        if let Some(status) = task.last_status() {
-                            if status == "STOPPED" || status == "STOPPING" {
-                                continue;
-                            }
+                        if let Some(status) = task.last_status()
+                            && (status == "STOPPED" || status == "STOPPING")
+                        {
+                            continue;
                         }
 
                         let task_def_arn = task
@@ -432,9 +477,24 @@ impl DiscoveryService {
                                         ec2.private_ip.as_str()
                                     };
 
-                                    let labels = LabelBuilder::new(MetadataLevel::Aws)
+                                    let host_port = if network_mode == "bridge" {
+                                        bridge_host_port(task, container_def.name(), port)
+                                    } else {
+                                        None
+                                    };
+                                    let target_port = if network_mode == "bridge" {
+                                        bridge_target_port(task, container_def.name(), port)
+                                    } else {
+                                        port
+                                    };
+
+                                    let mut labels = LabelBuilder::new(MetadataLevel::Aws)
                                         .with_container(container_def, port)
-                                        .with_network(target_ip, &network_mode, ec2.subnet_id.as_deref())
+                                        .with_network(
+                                            target_ip,
+                                            &network_mode,
+                                            ec2.subnet_id.as_deref(),
+                                        )
                                         .with_task(task, &task_def)
                                         .with_service(service)
                                         .with_cluster(cluster)
@@ -452,8 +512,14 @@ impl DiscoveryService {
                                             ec2.ec2_tags,
                                         )
                                         .build();
+                                    if let Some(host_port) = host_port {
+                                        labels.insert(
+                                            "__meta_ecs_host_port".to_string(),
+                                            host_port.to_string(),
+                                        );
+                                    }
 
-                                    targets.push(Target::new(target_ip, port, labels));
+                                    targets.push(Target::new(target_ip, target_port, labels));
                                 }
                                 Err(e) => {
                                     warn!("Failed to resolve EC2 instance for task: {}", e);
@@ -478,7 +544,10 @@ impl DiscoveryService {
             return Ok(Some(task_definition));
         }
 
-        self.metrics.aws_api_calls_total.with_label_values(&["describe_task_definition"]).inc();
+        self.metrics
+            .aws_api_calls_total
+            .with_label_values(&["describe_task_definition"])
+            .inc();
         let task_def_resp = self
             .ecs_client
             .describe_task_definition()
@@ -511,9 +580,13 @@ impl DiscoveryService {
             return Ok(ec2);
         }
 
-        let ec2 = self.resolve_ec2_instance(cluster_arn, container_instance_arn).await?;
-        container_instance_to_ec2_id_cache
-            .insert(container_instance_arn.to_string(), ec2.ec2_instance_id.clone());
+        let ec2 = self
+            .resolve_ec2_instance(cluster_arn, container_instance_arn)
+            .await?;
+        container_instance_to_ec2_id_cache.insert(
+            container_instance_arn.to_string(),
+            ec2.ec2_instance_id.clone(),
+        );
         ec2_instance_cache.insert(ec2.ec2_instance_id.clone(), ec2.clone());
         Ok(ec2)
     }
@@ -533,7 +606,10 @@ impl DiscoveryService {
                 req = req.next_token(token);
             }
 
-            self.metrics.aws_api_calls_total.with_label_values(&["list_services"]).inc();
+            self.metrics
+                .aws_api_calls_total
+                .with_label_values(&["list_services"])
+                .inc();
             let resp = req
                 .send()
                 .await
@@ -567,7 +643,10 @@ impl DiscoveryService {
                 req = req.next_token(token);
             }
 
-            self.metrics.aws_api_calls_total.with_label_values(&["list_tasks"]).inc();
+            self.metrics
+                .aws_api_calls_total
+                .with_label_values(&["list_tasks"])
+                .inc();
             let resp = req
                 .send()
                 .await
@@ -589,7 +668,10 @@ impl DiscoveryService {
     ) -> Result<(), DiscoveryError> {
         let missing = missing_container_instance_arns(cache, container_instance_arns);
         for chunk in missing.chunks(100) {
-            self.metrics.aws_api_calls_total.with_label_values(&["describe_container_instances"]).inc();
+            self.metrics
+                .aws_api_calls_total
+                .with_label_values(&["describe_container_instances"])
+                .inc();
             let container_instances = self
                 .ecs_client
                 .describe_container_instances()
@@ -603,7 +685,10 @@ impl DiscoveryService {
                 if let (Some(container_instance_arn), Some(ec2_instance_id)) =
                     (ci.container_instance_arn(), ci.ec2_instance_id())
                 {
-                    cache.insert(container_instance_arn.to_string(), ec2_instance_id.to_string());
+                    cache.insert(
+                        container_instance_arn.to_string(),
+                        ec2_instance_id.to_string(),
+                    );
                 }
             }
         }
@@ -616,7 +701,10 @@ impl DiscoveryService {
         cache: &mut HashMap<String, Ec2InstanceInfo>,
     ) -> Result<(), DiscoveryError> {
         for chunk in ec2_instance_ids.chunks(100) {
-            self.metrics.aws_api_calls_total.with_label_values(&["describe_instances"]).inc();
+            self.metrics
+                .aws_api_calls_total
+                .with_label_values(&["describe_instances"])
+                .inc();
             let instances = self
                 .ec2_client
                 .describe_instances()
@@ -640,9 +728,8 @@ impl DiscoveryService {
                         .and_then(|p| p.availability_zone())
                         .map(|s| s.to_string());
                     let subnet_id = instance.subnet_id().map(|s| s.to_string());
-                    let ec2_instance_type = instance
-                        .instance_type()
-                        .map(|t| t.as_str().to_string());
+                    let ec2_instance_type =
+                        instance.instance_type().map(|t| t.as_str().to_string());
                     let ec2_tags: HashMap<String, String> = instance
                         .tags()
                         .iter()
@@ -677,7 +764,10 @@ impl DiscoveryService {
         cluster_arn: &str,
         container_instance_arn: &str,
     ) -> Result<Ec2InstanceInfo, DiscoveryError> {
-        self.metrics.aws_api_calls_total.with_label_values(&["describe_container_instances"]).inc();
+        self.metrics
+            .aws_api_calls_total
+            .with_label_values(&["describe_container_instances"])
+            .inc();
         let container_instances = self
             .ecs_client
             .describe_container_instances()
@@ -694,7 +784,10 @@ impl DiscoveryService {
             .ok_or(DiscoveryError::NoContainerInstance)?
             .to_string();
 
-        self.metrics.aws_api_calls_total.with_label_values(&["describe_instances"]).inc();
+        self.metrics
+            .aws_api_calls_total
+            .with_label_values(&["describe_instances"])
+            .inc();
         let instances = self
             .ec2_client
             .describe_instances()
@@ -723,9 +816,7 @@ impl DiscoveryService {
 
         let subnet_id = instance.subnet_id().map(|s| s.to_string());
 
-        let ec2_instance_type = instance
-            .instance_type()
-            .map(|t| t.as_str().to_string());
+        let ec2_instance_type = instance.instance_type().map(|t| t.as_str().to_string());
 
         let ec2_tags: HashMap<String, String> = instance
             .tags()
@@ -759,7 +850,13 @@ impl DiscoveryService {
         region: impl Into<String>,
         metrics: std::sync::Arc<crate::metrics::MetricsState>,
     ) -> Self {
-        Self { ecs_client, ec2_client, account_id: account_id.into(), region: region.into(), metrics }
+        Self {
+            ecs_client,
+            ec2_client,
+            account_id: account_id.into(),
+            region: region.into(),
+            metrics,
+        }
     }
 }
 
@@ -767,6 +864,44 @@ impl DiscoveryService {
 mod tests {
     use super::*;
     use aws_sdk_ecs::types::{Attachment, KeyValuePair};
+
+    #[test]
+    fn bridge_target_port_uses_host_port_for_matching_container_binding() {
+        let task = aws_sdk_ecs::types::Task::builder()
+            .containers(
+                aws_sdk_ecs::types::Container::builder()
+                    .name("app")
+                    .network_bindings(
+                        aws_sdk_ecs::types::NetworkBinding::builder()
+                            .container_port(8686)
+                            .host_port(32781)
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        assert_eq!(bridge_target_port(&task, Some("app"), 8686), 32781);
+    }
+
+    #[test]
+    fn bridge_target_port_falls_back_to_container_port_without_matching_binding() {
+        let task = aws_sdk_ecs::types::Task::builder()
+            .containers(
+                aws_sdk_ecs::types::Container::builder()
+                    .name("sidecar")
+                    .network_bindings(
+                        aws_sdk_ecs::types::NetworkBinding::builder()
+                            .container_port(8686)
+                            .host_port(32781)
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        assert_eq!(bridge_target_port(&task, Some("app"), 8686), 8686);
+    }
 
     #[test]
     fn task_definition_from_cache_returns_none_on_miss() {
@@ -981,10 +1116,7 @@ mod tests {
             .name("privateIPv4Address")
             .value("10.0.1.42")
             .build();
-        let attachment = Attachment::builder()
-            .r#type("other")
-            .details(kv)
-            .build();
+        let attachment = Attachment::builder().r#type("other").details(kv).build();
         let task = aws_sdk_ecs::types::Task::builder()
             .attachments(attachment)
             .build();
@@ -1053,14 +1185,13 @@ mod tests {
     async fn discover_all_clusters_total_failure_with_mock() {
         use aws_smithy_mocks::{mock, mock_client};
 
-        let ecs_rule = mock!(aws_sdk_ecs::Client::describe_clusters)
-            .then_error(|| {
-                aws_sdk_ecs::operation::describe_clusters::DescribeClustersError::ServerException(
-                    aws_sdk_ecs::types::error::ServerException::builder()
-                        .message("simulated failure")
-                        .build(),
-                )
-            });
+        let ecs_rule = mock!(aws_sdk_ecs::Client::describe_clusters).then_error(|| {
+            aws_sdk_ecs::operation::describe_clusters::DescribeClustersError::ServerException(
+                aws_sdk_ecs::types::error::ServerException::builder()
+                    .message("simulated failure")
+                    .build(),
+            )
+        });
         let ecs_client = mock_client!(aws_sdk_ecs, [&ecs_rule]);
 
         let ec2_client = aws_sdk_ec2::Client::from_conf(
@@ -1075,7 +1206,11 @@ mod tests {
 
         let metrics = std::sync::Arc::new(crate::metrics::MetricsState::new().unwrap());
         let discovery = DiscoveryService::new_for_test(
-            ecs_client, ec2_client, "123456789012", "us-east-1", metrics,
+            ecs_client,
+            ec2_client,
+            "123456789012",
+            "us-east-1",
+            metrics,
         );
 
         let result = discovery
@@ -1083,38 +1218,38 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), DiscoveryError::AllClustersFailed));
+        assert!(matches!(
+            result.unwrap_err(),
+            DiscoveryError::AllClustersFailed
+        ));
     }
 
     #[tokio::test]
     async fn discover_all_clusters_partial_failure_with_mock() {
-        use aws_smithy_mocks::{mock, mock_client, RuleMode};
+        use aws_smithy_mocks::{RuleMode, mock, mock_client};
 
-        let fail_rule = mock!(aws_sdk_ecs::Client::describe_clusters)
-            .then_error(|| {
-                aws_sdk_ecs::operation::describe_clusters::DescribeClustersError::ServerException(
-                    aws_sdk_ecs::types::error::ServerException::builder()
-                        .message("simulated failure")
+        let fail_rule = mock!(aws_sdk_ecs::Client::describe_clusters).then_error(|| {
+            aws_sdk_ecs::operation::describe_clusters::DescribeClustersError::ServerException(
+                aws_sdk_ecs::types::error::ServerException::builder()
+                    .message("simulated failure")
+                    .build(),
+            )
+        });
+
+        let ok_describe_rule = mock!(aws_sdk_ecs::Client::describe_clusters).then_output(|| {
+            aws_sdk_ecs::operation::describe_clusters::DescribeClustersOutput::builder()
+                .clusters(
+                    aws_sdk_ecs::types::Cluster::builder()
+                        .cluster_arn("arn:aws:ecs:us-east-1:123456789012:cluster/ok-cluster")
+                        .cluster_name("ok-cluster")
                         .build(),
                 )
-            });
+                .build()
+        });
 
-        let ok_describe_rule = mock!(aws_sdk_ecs::Client::describe_clusters)
-            .then_output(|| {
-                aws_sdk_ecs::operation::describe_clusters::DescribeClustersOutput::builder()
-                    .clusters(
-                        aws_sdk_ecs::types::Cluster::builder()
-                            .cluster_arn("arn:aws:ecs:us-east-1:123456789012:cluster/ok-cluster")
-                            .cluster_name("ok-cluster")
-                            .build(),
-                    )
-                    .build()
-            });
-
-        let ok_list_rule = mock!(aws_sdk_ecs::Client::list_services)
-            .then_output(|| {
-                aws_sdk_ecs::operation::list_services::ListServicesOutput::builder().build()
-            });
+        let ok_list_rule = mock!(aws_sdk_ecs::Client::list_services).then_output(|| {
+            aws_sdk_ecs::operation::list_services::ListServicesOutput::builder().build()
+        });
 
         let ecs_client = mock_client!(
             aws_sdk_ecs,
@@ -1134,7 +1269,11 @@ mod tests {
 
         let metrics = std::sync::Arc::new(crate::metrics::MetricsState::new().unwrap());
         let discovery = DiscoveryService::new_for_test(
-            ecs_client, ec2_client, "123456789012", "us-east-1", metrics,
+            ecs_client,
+            ec2_client,
+            "123456789012",
+            "us-east-1",
+            metrics,
         );
 
         let result = discovery

@@ -9,19 +9,20 @@ pub fn filter_labels_by_level(target: &Target, level: MetadataLevel) -> Target {
         .iter()
         .filter(|(key, _)| {
             // Determine which level this label belongs to based on prefix
-            let label_level = if key.starts_with("__meta_ecs_container_") || *key == "__meta_ecs_metrics_port" {
-                MetadataLevel::Container
-            } else if key.starts_with("__meta_ecs_task_") {
-                MetadataLevel::Task
-            } else if key.starts_with("__meta_ecs_service_") || *key == "__meta_ecs_service" {
-                MetadataLevel::Service
-            } else if key.starts_with("__meta_ecs_cluster_") {
-                MetadataLevel::Cluster
-            } else if key.starts_with("__meta_ecs_") {
-                MetadataLevel::Aws
-            } else {
-                MetadataLevel::Container // Default for unknown labels
-            };
+            let label_level =
+                if key.starts_with("__meta_ecs_container_") || *key == "__meta_ecs_metrics_port" {
+                    MetadataLevel::Container
+                } else if key.starts_with("__meta_ecs_task_") {
+                    MetadataLevel::Task
+                } else if key.starts_with("__meta_ecs_service_") || *key == "__meta_ecs_service" {
+                    MetadataLevel::Service
+                } else if key.starts_with("__meta_ecs_cluster_") {
+                    MetadataLevel::Cluster
+                } else if key.starts_with("__meta_ecs_") {
+                    MetadataLevel::Aws
+                } else {
+                    MetadataLevel::Container // Default for unknown labels
+                };
 
             level.includes(label_level)
         })

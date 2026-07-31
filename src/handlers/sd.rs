@@ -1,17 +1,17 @@
+use crate::config::Mode;
+use crate::models::ProxyTarget;
+use crate::models::{FilterMode, MetadataLevel, SdQueryParams, Target, filter_labels_by_level};
+use crate::state::AppState;
 use axum::{
+    Json,
     extract::{Query, RawQuery, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
-use crate::config::Mode;
-use crate::models::ProxyTarget;
-use crate::state::AppState;
-use crate::models::{filter_labels_by_level, FilterMode, MetadataLevel, SdQueryParams, Target};
 use serde_json::json;
 use std::sync::atomic::Ordering;
-use tracing::{debug, info, warn};
 use std::time::SystemTime;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Build a single SD target entry for proxy mode: the public_address becomes the
@@ -85,7 +85,8 @@ pub async fn sd_handler(
         let (proxy_targets, last_refresh) = {
             let snap = state.snapshot.read().await;
             let last_refresh = snap.last_refresh;
-            let targets: Vec<Target> = snap.routing_table
+            let targets: Vec<Target> = snap
+                .routing_table
                 .iter()
                 .map(|(uuid, proxy_target)| {
                     build_proxy_sd_target(uuid, proxy_target, public_address, public_address_scheme)
@@ -155,7 +156,11 @@ fn authorize_refresh(
     Ok(())
 }
 
-fn refresh_retry_after_seconds(last_request_secs: u64, now_secs: u64, min_interval: u64) -> Option<u64> {
+fn refresh_retry_after_seconds(
+    last_request_secs: u64,
+    now_secs: u64,
+    min_interval: u64,
+) -> Option<u64> {
     let elapsed = now_secs.saturating_sub(last_request_secs);
     if elapsed < min_interval {
         Some(min_interval - elapsed)
@@ -179,15 +184,12 @@ fn refresh_retry_after_seconds(last_request_secs: u64, now_secs: u64, min_interv
         (status = 503, description = "All clusters unreachable", body = serde_json::Value),
     )
 )]
-pub async fn refresh_handler(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Response {
-    let provided_token = headers
-        .get("X-Refresh-Token")
-        .and_then(|v| v.to_str().ok());
+pub async fn refresh_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let provided_token = headers.get("X-Refresh-Token").and_then(|v| v.to_str().ok());
 
-    if let Err((status, body)) = authorize_refresh(state.config.refresh_token.as_deref(), provided_token) {
+    if let Err((status, body)) =
+        authorize_refresh(state.config.refresh_token.as_deref(), provided_token)
+    {
         return (status, Json(body)).into_response();
     }
 
@@ -208,13 +210,19 @@ pub async fn refresh_handler(
         )
             .into_response();
     }
-    state.last_manual_refresh_request.store(now_secs, Ordering::SeqCst);
+    state
+        .last_manual_refresh_request
+        .store(now_secs, Ordering::SeqCst);
 
     let clusters = state.config.clusters.clone();
 
     info!("Manual discovery refresh triggered");
 
-    match state.discovery.discover_all_clusters(&clusters, state.config.mode.clone()).await {
+    match state
+        .discovery
+        .discover_all_clusters(&clusters, state.config.mode.clone())
+        .await
+    {
         Ok(targets_aws) => {
             let count = targets_aws.len();
             state.replace_cache_and_record_metrics(targets_aws).await;
@@ -235,7 +243,7 @@ pub async fn refresh_handler(
                     "detail": e.to_string()
                 })),
             )
-            .into_response()
+                .into_response()
         }
     }
 }
@@ -442,9 +450,7 @@ mod tests {
 
     #[test]
     fn test_filter_case_sensitive() {
-        let targets = vec![
-            create_test_target("Prod", "api", "api-task"),
-        ];
+        let targets = vec![create_test_target("Prod", "api", "api-task")];
 
         let params = SdQueryParams {
             clusters: vec!["prod".to_string()],
@@ -613,7 +619,11 @@ mod tests {
         let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(75);
         let cache_age_seconds = calculate_cache_age_seconds(last_refresh, now);
 
-        let cache_state = if cache_age_seconds > 30 { "stale" } else { "fresh" };
+        let cache_state = if cache_age_seconds > 30 {
+            "stale"
+        } else {
+            "fresh"
+        };
 
         let response = build_sd_response_with_cache_age(vec![], cache_age_seconds, cache_state);
         let cache_state = response
@@ -630,7 +640,11 @@ mod tests {
         let last_refresh = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
         let cache_age_seconds = calculate_cache_age_seconds(last_refresh, now);
 
-        let cache_state = if cache_age_seconds > 30 { "stale" } else { "fresh" };
+        let cache_state = if cache_age_seconds > 30 {
+            "stale"
+        } else {
+            "fresh"
+        };
 
         let response = build_sd_response_with_cache_age(vec![], cache_age_seconds, cache_state);
         let cache_state = response
@@ -730,8 +744,7 @@ mod tests {
             "API docs must include /sd/refresh section"
         );
         assert!(
-            docs.contains("\"status\": \"ok\"")
-                && docs.contains("\"targets_discovered\""),
+            docs.contains("\"status\": \"ok\"") && docs.contains("\"targets_discovered\""),
             "API docs must describe refresh JSON with status and targets_discovered"
         );
         assert!(
@@ -775,10 +788,7 @@ mod tests {
         };
         let target = build_proxy_sd_target(&uuid, &proxy_target, "ecs-sd.internal:8080", "https");
         let expected_path = format!("/proxy/{}/metrics", uuid);
-        assert_eq!(
-            target.labels.get("__metrics_path__"),
-            Some(&expected_path)
-        );
+        assert_eq!(target.labels.get("__metrics_path__"), Some(&expected_path));
     }
 
     #[test]
@@ -797,10 +807,7 @@ mod tests {
     fn sd_proxy_mode_preserves_meta_labels() {
         let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"test-target");
         let mut labels = HashMap::new();
-        labels.insert(
-            "__meta_ecs_task_family".to_string(),
-            "o11y-bot".to_string(),
-        );
+        labels.insert("__meta_ecs_task_family".to_string(), "o11y-bot".to_string());
         labels.insert(
             "__meta_ecs_container_name".to_string(),
             "ingestion".to_string(),
@@ -918,7 +925,8 @@ mod tests {
 
         let filtered = filter_targets(vec![container_level_target], &params);
         assert_eq!(
-            filtered.len(), 0,
+            filtered.len(),
+            0,
             "cluster filter cannot match after container-level label filtering"
         );
     }
@@ -949,9 +957,18 @@ mod tests {
         labels_dev.insert("__meta_ecs_tag_env".to_string(), "dev".to_string());
 
         let targets = vec![
-            Target { targets: vec!["10.0.0.1:8080".to_string()], labels: labels_prod },
-            Target { targets: vec!["10.0.0.2:8080".to_string()], labels: labels_staging },
-            Target { targets: vec!["10.0.0.3:8080".to_string()], labels: labels_dev },
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels_prod,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels_staging,
+            },
+            Target {
+                targets: vec!["10.0.0.3:8080".to_string()],
+                labels: labels_dev,
+            },
         ];
 
         let params = SdQueryParams {
@@ -981,8 +998,14 @@ mod tests {
         labels_only_env.insert("__meta_ecs_tag_env".to_string(), "prod".to_string());
 
         let targets = vec![
-            Target { targets: vec!["10.0.0.1:8080".to_string()], labels: labels_both },
-            Target { targets: vec!["10.0.0.2:8080".to_string()], labels: labels_only_env },
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels_both,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels_only_env,
+            },
         ];
 
         let params = SdQueryParams {
@@ -1017,9 +1040,18 @@ mod tests {
         labels_prod_platform.insert("__meta_ecs_tag_team".to_string(), "platform".to_string());
 
         let targets = vec![
-            Target { targets: vec!["10.0.0.1:8080".to_string()], labels: labels_prod_obs },
-            Target { targets: vec!["10.0.0.2:8080".to_string()], labels: labels_staging_obs },
-            Target { targets: vec!["10.0.0.3:8080".to_string()], labels: labels_prod_platform },
+            Target {
+                targets: vec!["10.0.0.1:8080".to_string()],
+                labels: labels_prod_obs,
+            },
+            Target {
+                targets: vec!["10.0.0.2:8080".to_string()],
+                labels: labels_staging_obs,
+            },
+            Target {
+                targets: vec!["10.0.0.3:8080".to_string()],
+                labels: labels_prod_platform,
+            },
         ];
 
         let params = SdQueryParams {
@@ -1036,7 +1068,11 @@ mod tests {
         };
 
         let filtered = filter_targets(targets, &params);
-        assert_eq!(filtered.len(), 2, "prod+obs and staging+obs should match; prod+platform should not");
+        assert_eq!(
+            filtered.len(),
+            2,
+            "prod+obs and staging+obs should match; prod+platform should not"
+        );
     }
 
     #[test]
@@ -1084,7 +1120,10 @@ mod tests {
 
         let mut labels2 = HashMap::new();
         labels2.insert("__meta_ecs_cluster_name".to_string(), "dev".to_string());
-        labels2.insert("__meta_ecs_tag_task_team".to_string(), "platform".to_string());
+        labels2.insert(
+            "__meta_ecs_tag_task_team".to_string(),
+            "platform".to_string(),
+        );
 
         let targets = vec![
             Target {
@@ -1114,7 +1153,7 @@ mod tests {
 
     #[tokio::test]
     async fn sd_integration_empty_cache_returns_empty_array() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use tower::ServiceExt;
 
@@ -1130,12 +1169,16 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json.is_array(), "response should be a JSON array");
-        assert_eq!(json.as_array().unwrap().len(), 0, "empty cache should return empty array");
+        assert_eq!(
+            json.as_array().unwrap().len(),
+            0,
+            "empty cache should return empty array"
+        );
     }
 
     #[tokio::test]
     async fn sd_integration_returns_targets_when_populated() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use tower::ServiceExt;
 
@@ -1144,7 +1187,12 @@ mod tests {
         let app = crate::routes::create_routes(state.clone()).with_state(state);
 
         let response = app
-            .oneshot(Request::builder().uri("/sd?level=task").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/sd?level=task")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -1155,14 +1203,17 @@ mod tests {
         assert_eq!(arr.len(), 1, "should return one target");
         // At task level, __meta_ecs_task_family is available
         assert_eq!(
-            arr[0].get("labels").and_then(|l| l.get("__meta_ecs_task_family")).and_then(|v| v.as_str()),
+            arr[0]
+                .get("labels")
+                .and_then(|l| l.get("__meta_ecs_task_family"))
+                .and_then(|v| v.as_str()),
             Some("api-task")
         );
     }
 
     #[tokio::test]
     async fn sd_integration_filter_by_cluster() {
-        use axum::body::{to_bytes, Body};
+        use axum::body::{Body, to_bytes};
         use axum::http::Request;
         use tower::ServiceExt;
 
@@ -1175,7 +1226,12 @@ mod tests {
 
         // Use level=aws to preserve __meta_ecs_cluster_name for filtering
         let response = app
-            .oneshot(Request::builder().uri("/sd?cluster=prod&level=aws").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/sd?cluster=prod&level=aws")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -1185,7 +1241,10 @@ mod tests {
         let arr = json.as_array().expect("response should be a JSON array");
         assert_eq!(arr.len(), 1, "should return only prod target");
         assert_eq!(
-            arr[0].get("labels").and_then(|l| l.get("__meta_ecs_cluster_name")).and_then(|v| v.as_str()),
+            arr[0]
+                .get("labels")
+                .and_then(|l| l.get("__meta_ecs_cluster_name"))
+                .and_then(|v| v.as_str()),
             Some("prod")
         );
     }
@@ -1205,7 +1264,13 @@ mod tests {
             .unwrap();
 
         let headers = response.headers();
-        assert!(headers.contains_key("x-cache-age"), "response should include X-Cache-Age header");
-        assert!(headers.contains_key("x-cache-state"), "response should include X-Cache-State header");
+        assert!(
+            headers.contains_key("x-cache-age"),
+            "response should include X-Cache-Age header"
+        );
+        assert!(
+            headers.contains_key("x-cache-state"),
+            "response should include X-Cache-State header"
+        );
     }
 }

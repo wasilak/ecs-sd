@@ -45,7 +45,9 @@ mod tests {
 
     #[test]
     fn openapi_spec_is_valid() {
-        let json_str = ApiDoc::openapi().to_json().expect("failed to serialize OpenAPI spec");
+        let json_str = ApiDoc::openapi()
+            .to_json()
+            .expect("failed to serialize OpenAPI spec");
         let body: serde_json::Value =
             serde_json::from_str(&json_str).expect("OpenAPI spec is not valid JSON");
 

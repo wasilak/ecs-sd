@@ -12,7 +12,11 @@ fn metrics_state_has_registry() {
     // Registry exists implicitly via gather()
     let families = metrics.registry.gather();
     // Should have at least 7 metric families (CounterVec metrics appear after first use)
-    assert!(families.len() >= 7, "should have at least 7 registered metric families, got {}", families.len());
+    assert!(
+        families.len() >= 7,
+        "should have at least 7 registered metric families, got {}",
+        families.len()
+    );
 }
 
 #[test]
@@ -21,7 +25,9 @@ fn discovery_duration_histogram_exists() {
     metrics.discovery_duration.observe(0.5);
     // Verify it was recorded by checking gather output
     let families = metrics.registry.gather();
-    let found = families.iter().any(|f| f.name() == "ecs_sd_discovery_duration_seconds");
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_discovery_duration_seconds");
     assert!(found, "discovery_duration metric should exist");
 }
 
@@ -30,7 +36,9 @@ fn discovery_targets_gauge_works() {
     let metrics = MetricsState::new().unwrap();
     metrics.discovery_targets.set(42.0);
     let families = metrics.registry.gather();
-    let found = families.iter().any(|f| f.name() == "ecs_sd_discovery_targets_total");
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_discovery_targets_total");
     assert!(found, "discovery_targets metric should exist");
 }
 
@@ -40,22 +48,39 @@ fn discovery_errors_counter_works() {
     metrics.discovery_errors.inc();
     metrics.discovery_errors.inc();
     let families = metrics.registry.gather();
-    let found = families.iter().any(|f| f.name() == "ecs_sd_discovery_errors_total");
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_discovery_errors_total");
     assert!(found, "discovery_errors metric should exist");
 }
 
 #[test]
 fn cache_refreshes_countervec_works() {
     let metrics = MetricsState::new().unwrap();
-    metrics.cache_refreshes.with_label_values(&["success"]).inc();
-    metrics.cache_refreshes.with_label_values(&["success"]).inc();
+    metrics
+        .cache_refreshes
+        .with_label_values(&["success"])
+        .inc();
+    metrics
+        .cache_refreshes
+        .with_label_values(&["success"])
+        .inc();
     metrics.cache_refreshes.with_label_values(&["error"]).inc();
     let families = metrics.registry.gather();
-    let found = families.iter().any(|f| f.name() == "ecs_sd_cache_refreshes_total");
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_cache_refreshes_total");
     assert!(found, "cache_refreshes metric should exist");
     // Should have 2 metrics: one for success, one for error
-    let family = families.iter().find(|f| f.name() == "ecs_sd_cache_refreshes_total").unwrap();
-    assert_eq!(family.get_metric().len(), 2, "should have metrics for both labels");
+    let family = families
+        .iter()
+        .find(|f| f.name() == "ecs_sd_cache_refreshes_total")
+        .unwrap();
+    assert_eq!(
+        family.get_metric().len(),
+        2,
+        "should have metrics for both labels"
+    );
 }
 
 #[test]
@@ -63,7 +88,9 @@ fn proxy_duration_histogram_works() {
     let metrics = MetricsState::new().unwrap();
     metrics.proxy_duration.observe(0.1);
     let families = metrics.registry.gather();
-    let found = families.iter().any(|f| f.name() == "ecs_sd_proxy_duration_seconds");
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_proxy_duration_seconds");
     assert!(found, "proxy_duration should exist");
 }
 
@@ -73,10 +100,19 @@ fn proxy_requests_countervec_works() {
     metrics.proxy_requests.with_label_values(&["200"]).inc();
     metrics.proxy_requests.with_label_values(&["500"]).inc();
     let families = metrics.registry.gather();
-    let found = families.iter().any(|f| f.name() == "ecs_sd_proxy_requests_total");
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_proxy_requests_total");
     assert!(found, "proxy_requests metric should exist");
-    let family = families.iter().find(|f| f.name() == "ecs_sd_proxy_requests_total").unwrap();
-    assert_eq!(family.get_metric().len(), 2, "should have metrics for both status codes");
+    let family = families
+        .iter()
+        .find(|f| f.name() == "ecs_sd_proxy_requests_total")
+        .unwrap();
+    assert_eq!(
+        family.get_metric().len(),
+        2,
+        "should have metrics for both status codes"
+    );
 }
 
 #[test]
@@ -84,7 +120,9 @@ fn cluster_is_leader_gauge_works() {
     let metrics = MetricsState::new().unwrap();
     metrics.cluster_is_leader.set(1.0);
     let families = metrics.registry.gather();
-    let found = families.iter().any(|f| f.name() == "ecs_sd_cluster_is_leader");
+    let found = families
+        .iter()
+        .any(|f| f.name() == "ecs_sd_cluster_is_leader");
     assert!(found, "cluster_is_leader metric should exist");
 }
 
@@ -148,7 +186,11 @@ fn http_requests_total_countervec_works() {
         .iter()
         .find(|f| f.name() == "ecs_sd_http_requests_total")
         .unwrap();
-    assert_eq!(family.get_metric().len(), 1, "should have one HTTP request metric");
+    assert_eq!(
+        family.get_metric().len(),
+        1,
+        "should have one HTTP request metric"
+    );
 }
 
 #[test]
@@ -168,7 +210,7 @@ fn http_requests_total_uses_required_label_names() {
     let label_names: Vec<&str> = metric
         .get_label()
         .iter()
-        .map(|label| label.get_name())
+        .map(|label| label.name())
         .collect();
 
     assert_eq!(label_names, vec!["endpoint", "method", "status"]);
@@ -226,7 +268,11 @@ fn discovery_target_churn_countervec_works() {
         .iter()
         .find(|f| f.name() == "ecs_sd_discovery_target_churn_total")
         .unwrap();
-    assert_eq!(family.get_metric().len(), 2, "should have added and removed metrics");
+    assert_eq!(
+        family.get_metric().len(),
+        2,
+        "should have added and removed metrics"
+    );
 }
 
 #[test]
@@ -246,7 +292,11 @@ fn aws_api_calls_countervec_works() {
         .iter()
         .find(|f| f.name() == "ecs_sd_aws_api_calls_total")
         .unwrap();
-    assert_eq!(family.get_metric().len(), 2, "should have two AWS operation metrics");
+    assert_eq!(
+        family.get_metric().len(),
+        2,
+        "should have two AWS operation metrics"
+    );
 }
 
 #[test]
@@ -270,7 +320,11 @@ fn cache_follower_syncs_countervec_works() {
         .iter()
         .find(|f| f.name() == "ecs_sd_cache_follower_syncs_total")
         .unwrap();
-    assert_eq!(family.get_metric().len(), 3, "should have three follower sync result metrics");
+    assert_eq!(
+        family.get_metric().len(),
+        3,
+        "should have three follower sync result metrics"
+    );
 }
 
 #[test]

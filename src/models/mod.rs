@@ -2,7 +2,7 @@ pub mod target;
 pub use target::Target;
 
 pub mod proxy_target;
-pub use proxy_target::{build_routing_table, ProxyTarget};
+pub use proxy_target::{ProxyTarget, build_routing_table};
 
 pub mod metadata_level;
 pub use metadata_level::MetadataLevel;
@@ -15,17 +15,14 @@ pub use label_filter::filter_labels_by_level;
 
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, Deserialize, utoipa::ToSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum FilterMode {
+    #[default]
     And,
     Or,
-}
-
-impl Default for FilterMode {
-    fn default() -> Self {
-        Self::And
-    }
 }
 
 /// Query parameters for the /sd endpoint

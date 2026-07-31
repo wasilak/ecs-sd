@@ -198,8 +198,8 @@ impl Config {
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,
     {
-        let args = Args::try_parse_from(iter)
-            .map_err(|err| ConfigError::InvalidValue(err.to_string()))?;
+        let args =
+            Args::try_parse_from(iter).map_err(|err| ConfigError::InvalidValue(err.to_string()))?;
 
         Self::try_from_args(args)
     }
@@ -385,10 +385,7 @@ fn normalize_public_address(
         ))
     })?;
 
-    Ok((
-        Some(format!("{}:{}", host, port)),
-        Some(scheme.to_string()),
-    ))
+    Ok((Some(format!("{}:{}", host, port)), Some(scheme.to_string())))
 }
 
 #[cfg(test)]
@@ -420,7 +417,9 @@ mod tests {
 
     #[test]
     fn mode_defaults_to_discovery() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -429,11 +428,21 @@ mod tests {
 
     #[test]
     fn mode_flag_sets_proxy() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
-        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy", "--public-address", "http://ecs-sd.local:8080"])
-            .expect("should succeed");
+        let config = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--mode",
+            "proxy",
+            "--public-address",
+            "http://ecs-sd.local:8080",
+        ])
+        .expect("should succeed");
         assert_eq!(config.mode, Mode::Proxy);
         assert_eq!(config.public_address.as_deref(), Some("ecs-sd.local:8080"));
         assert_eq!(config.public_address_scheme.as_deref(), Some("http"));
@@ -441,7 +450,9 @@ mod tests {
 
     #[test]
     fn env_ecs_sd_mode_sets_proxy() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::set_var("ECS_SD_MODE", "proxy");
             std::env::set_var("ECS_SD_PUBLIC_ADDRESS", "http://host.example:8080");
@@ -459,17 +470,24 @@ mod tests {
 
     #[test]
     fn proxy_mode_without_public_address_fails() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let err = Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "proxy"])
             .expect_err("should fail");
-        assert!(err.to_string().contains("--public-address"), "error was: {err}");
+        assert!(
+            err.to_string().contains("--public-address"),
+            "error was: {err}"
+        );
     }
 
     #[test]
     fn proxy_mode_with_public_address_succeeds() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter([
@@ -482,13 +500,18 @@ mod tests {
             "https://ecs-sd.example.com",
         ])
         .expect("should succeed");
-        assert_eq!(config.public_address.as_deref(), Some("ecs-sd.example.com:443"));
+        assert_eq!(
+            config.public_address.as_deref(),
+            Some("ecs-sd.example.com:443")
+        );
         assert_eq!(config.public_address_scheme.as_deref(), Some("https"));
     }
 
     #[test]
     fn discovery_mode_without_public_address_ok() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -496,7 +519,9 @@ mod tests {
 
     #[test]
     fn public_address_requires_scheme() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let err = Config::from_iter([
@@ -509,12 +534,17 @@ mod tests {
             "ecs-sd.example.com:8080",
         ])
         .expect_err("should reject missing scheme");
-        assert!(err.to_string().contains("http:// or https://"), "error was: {err}");
+        assert!(
+            err.to_string().contains("http:// or https://"),
+            "error was: {err}"
+        );
     }
 
     #[test]
     fn public_address_rejects_unsupported_scheme() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let err = Config::from_iter([
@@ -527,12 +557,17 @@ mod tests {
             "ftp://ecs-sd.example.com:8080",
         ])
         .expect_err("should reject unsupported scheme");
-        assert!(err.to_string().contains("only http:// or https://"), "error was: {err}");
+        assert!(
+            err.to_string().contains("only http:// or https://"),
+            "error was: {err}"
+        );
     }
 
     #[test]
     fn public_address_rejects_ip_host() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let err = Config::from_iter([
@@ -545,12 +580,17 @@ mod tests {
             "http://10.0.0.10:8080",
         ])
         .expect_err("should reject IP host");
-        assert!(err.to_string().contains("host must be a domain name"), "error was: {err}");
+        assert!(
+            err.to_string().contains("host must be a domain name"),
+            "error was: {err}"
+        );
     }
 
     #[test]
     fn public_address_rejects_path_query_and_fragment() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let err = Config::from_iter([
@@ -564,14 +604,17 @@ mod tests {
         ])
         .expect_err("should reject path/query/fragment");
         assert!(
-            err.to_string().contains("path, query, and fragment are not allowed"),
+            err.to_string()
+                .contains("path, query, and fragment are not allowed"),
             "error was: {err}"
         );
     }
 
     #[test]
     fn invalid_mode_rejected() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         Config::from_iter(["ecs-sd", "--clusters", "prod", "--mode", "invalid"])
@@ -580,7 +623,9 @@ mod tests {
 
     #[test]
     fn cli_overrides_env_refresh_interval() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::set_var("ECS_SD_CLUSTERS", "from-env");
             std::env::set_var("ECS_SD_REFRESH_INTERVAL", "120s");
@@ -590,8 +635,14 @@ mod tests {
         clear_mode_env_vars();
         clear_cluster_env_vars();
 
-        let result = Config::from_iter(["ecs-sd", "--clusters", "from-cli", "--refresh-interval", "30s"])
-            .expect("config parsing should succeed");
+        let result = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "from-cli",
+            "--refresh-interval",
+            "30s",
+        ])
+        .expect("config parsing should succeed");
 
         assert_eq!(result.clusters, vec!["from-cli"]);
         assert_eq!(result.refresh_interval, 30);
@@ -604,7 +655,9 @@ mod tests {
 
     #[test]
     fn uses_env_when_cli_absent() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::set_var("ECS_SD_CLUSTERS", "prod,staging");
             std::env::set_var("ECS_SD_LISTEN", "127.0.0.1:18080");
@@ -631,7 +684,9 @@ mod tests {
 
     #[test]
     fn uses_defaults_when_optional_values_absent() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::set_var("ECS_SD_CLUSTERS", "prod");
             std::env::remove_var("ECS_SD_LISTEN");
@@ -655,35 +710,56 @@ mod tests {
 
     #[test]
     fn rejects_empty_clusters() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_cluster_env_vars();
-        let error = Config::from_iter(["ecs-sd", "--clusters", " , , "]).expect_err("should reject empty clusters");
-        assert!(error.to_string().contains("clusters must contain at least one non-empty entry"));
+        let error = Config::from_iter(["ecs-sd", "--clusters", " , , "])
+            .expect_err("should reject empty clusters");
+        assert!(
+            error
+                .to_string()
+                .contains("clusters must contain at least one non-empty entry")
+        );
     }
 
     #[test]
     fn rejects_invalid_listen_address() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_cluster_env_vars();
         let error = Config::from_iter(["ecs-sd", "--clusters", "prod", "--listen", "bad-listen"])
             .expect_err("should reject invalid listen");
-        assert!(error.to_string().contains("listen must be a valid socket address"));
+        assert!(
+            error
+                .to_string()
+                .contains("listen must be a valid socket address")
+        );
     }
 
     #[test]
     fn rejects_zero_refresh_interval() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_cluster_env_vars();
         let error = Config::from_iter(["ecs-sd", "--clusters", "prod", "--refresh-interval", "0s"])
             .expect_err("should reject zero refresh interval");
-        assert!(error.to_string().contains("refresh interval must be greater than 0"));
+        assert!(
+            error
+                .to_string()
+                .contains("refresh interval must be greater than 0")
+        );
     }
 
     // ---- Cluster config tests ----
 
     #[test]
     fn cluster_mode_defaults_to_standalone() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -692,17 +768,22 @@ mod tests {
 
     #[test]
     fn cluster_mode_cluster_via_flag() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
-        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-mode", "cluster"])
-            .expect("should succeed");
+        let config =
+            Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-mode", "cluster"])
+                .expect("should succeed");
         assert_eq!(config.cluster_mode, ClusterMode::Cluster);
     }
 
     #[test]
     fn cluster_mode_cluster_via_env() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         unsafe {
             std::env::set_var("ECS_SD_CLUSTER_MODE", "cluster");
@@ -716,7 +797,9 @@ mod tests {
 
     #[test]
     fn gossip_port_defaults_to_8081() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -725,7 +808,9 @@ mod tests {
 
     #[test]
     fn gossip_port_overridable() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--gossip-port", "9999"])
@@ -735,14 +820,19 @@ mod tests {
 
     #[test]
     fn cluster_seeds_parsed_from_comma_separated() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter([
             "ecs-sd",
-            "--clusters", "prod",
-            "--cluster-mode", "cluster",
-            "--cluster-seeds", "host1:8081,host2:8081",
+            "--clusters",
+            "prod",
+            "--cluster-mode",
+            "cluster",
+            "--cluster-seeds",
+            "host1:8081,host2:8081",
         ])
         .expect("should succeed");
         assert_eq!(config.cluster_seeds, vec!["host1:8081", "host2:8081"]);
@@ -750,17 +840,22 @@ mod tests {
 
     #[test]
     fn cluster_seeds_empty_allowed_in_cluster_mode() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
-        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-mode", "cluster"])
-            .expect("should succeed");
+        let config =
+            Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-mode", "cluster"])
+                .expect("should succeed");
         assert_eq!(config.cluster_seeds, Vec::<String>::new());
     }
 
     #[test]
     fn node_id_defaults_to_hostname_colon_port() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -778,27 +873,43 @@ mod tests {
 
     #[test]
     fn node_id_overridable() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
-        let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--node-id", "my-custom-id"])
-            .expect("should succeed");
+        let config =
+            Config::from_iter(["ecs-sd", "--clusters", "prod", "--node-id", "my-custom-id"])
+                .expect("should succeed");
         assert_eq!(config.node_id, "my-custom-id");
     }
 
     #[test]
     fn invalid_cluster_seed_rejected() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
-        let err = Config::from_iter(["ecs-sd", "--clusters", "prod", "--cluster-seeds", "notaport"])
-            .expect_err("should fail");
-        assert!(err.to_string().contains("invalid cluster seed"), "error was: {err}");
+        let err = Config::from_iter([
+            "ecs-sd",
+            "--clusters",
+            "prod",
+            "--cluster-seeds",
+            "notaport",
+        ])
+        .expect_err("should fail");
+        assert!(
+            err.to_string().contains("invalid cluster seed"),
+            "error was: {err}"
+        );
     }
 
     #[test]
     fn metrics_port_defaults_to_none() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -807,7 +918,9 @@ mod tests {
 
     #[test]
     fn metrics_port_overridable_via_flag() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod", "--metrics-port", "9090"])
@@ -817,7 +930,9 @@ mod tests {
 
     #[test]
     fn metrics_port_overridable_via_env() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         unsafe {
@@ -832,7 +947,9 @@ mod tests {
 
     #[test]
     fn refresh_token_defaults_to_none() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -841,7 +958,9 @@ mod tests {
 
     #[test]
     fn refresh_token_overridable_via_flag() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter([
@@ -857,7 +976,9 @@ mod tests {
 
     #[test]
     fn refresh_min_interval_defaults_to_30_seconds() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -866,7 +987,9 @@ mod tests {
 
     #[test]
     fn refresh_min_interval_overridable_via_flag() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter([
@@ -882,7 +1005,9 @@ mod tests {
 
     #[test]
     fn rejects_zero_refresh_min_interval() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let error = Config::from_iter([
@@ -902,7 +1027,9 @@ mod tests {
 
     #[test]
     fn proxy_forward_sensitive_headers_defaults_to_false() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -911,7 +1038,9 @@ mod tests {
 
     #[test]
     fn proxy_forward_sensitive_headers_overridable_via_flag() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter([
@@ -948,7 +1077,9 @@ mod tests {
 
     #[test]
     fn max_target_drop_ratio_defaults_to_zero() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter(["ecs-sd", "--clusters", "prod"]).expect("should succeed");
@@ -957,7 +1088,9 @@ mod tests {
 
     #[test]
     fn max_target_drop_ratio_rejects_out_of_range() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let err = Config::from_iter([
@@ -977,7 +1110,9 @@ mod tests {
 
     #[test]
     fn max_target_drop_ratio_accepts_valid_range() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_mode_env_vars();
         clear_cluster_env_vars();
         let config = Config::from_iter([

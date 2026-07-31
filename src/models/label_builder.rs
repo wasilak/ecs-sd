@@ -85,7 +85,13 @@ fn ecs_tags_to_map(tags: &[EcsTag]) -> HashMap<String, String> {
 
 fn sanitize_tag_key(key: &str) -> String {
     key.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -93,7 +99,7 @@ fn sanitize_tag_key(key: &str) -> String {
 /// Extract the task definition revision number from an ARN suffix.
 /// `arn:aws:ecs:...:task-definition/family:42` -> `"42"`.
 pub(crate) fn extract_task_version(definition_arn: &str) -> &str {
-    definition_arn.split(':').last().unwrap_or("unknown")
+    definition_arn.split(':').next_back().unwrap_or("unknown")
 }
 
 /// Parse the `prometheus.io/scheme` and `prometheus.io/path` docker labels,
@@ -139,7 +145,12 @@ impl LabelBuilder {
         self
     }
 
-    pub fn with_network(mut self, ip_address: &str, network_mode: &str, subnet_id: Option<&str>) -> Self {
+    pub fn with_network(
+        mut self,
+        ip_address: &str,
+        network_mode: &str,
+        subnet_id: Option<&str>,
+    ) -> Self {
         self.network_data = Some(NetworkData {
             ip_address: ip_address.to_string(),
             network_mode: network_mode.to_string(),
@@ -168,9 +179,7 @@ impl LabelBuilder {
                 .unwrap_or_else(|| "unknown".to_string()),
             desired_status: task.desired_status().map(|s| s.to_string()),
             last_status: task.last_status().map(|s| s.to_string()),
-            health_status: task
-                .health_status()
-                .map(|hs| hs.as_str().to_string()),
+            health_status: task.health_status().map(|hs| hs.as_str().to_string()),
             platform_family: task.platform_family().map(|s| s.to_string()),
             platform_version: task.platform_version().map(|s| s.to_string()),
             tags: ecs_tags_to_map(task.tags()),
@@ -250,68 +259,74 @@ impl LabelBuilder {
         }
 
         // Task level
-        if self.level.includes(MetadataLevel::Task) {
-            if let Some(data) = self.task_data {
-                labels.insert("__meta_ecs_task_arn".to_string(), data.arn);
-                labels.insert("__meta_ecs_task_definition".to_string(), data.definition_arn);
-                labels.insert("__meta_ecs_task_family".to_string(), data.family);
-                labels.insert("__meta_ecs_task_version".to_string(), data.version);
-                labels.insert("__meta_ecs_launch_type".to_string(), data.launch_type);
-                if let Some(group) = data.group {
-                    labels.insert("__meta_ecs_task_group".to_string(), group);
-                }
-                if let Some(v) = data.desired_status {
-                    labels.insert("__meta_ecs_desired_status".to_string(), v);
-                }
-                if let Some(v) = data.last_status {
-                    labels.insert("__meta_ecs_last_status".to_string(), v);
-                }
-                if let Some(v) = data.health_status {
-                    labels.insert("__meta_ecs_health_status".to_string(), v);
-                }
-                if let Some(v) = data.platform_family {
-                    labels.insert("__meta_ecs_platform_family".to_string(), v);
-                }
-                if let Some(v) = data.platform_version {
-                    labels.insert("__meta_ecs_platform_version".to_string(), v);
-                }
-                for (k, v) in data.tags {
-                    labels.insert(
-                        format!("__meta_ecs_tag_task_{}", sanitize_tag_key(&k)),
-                        v,
-                    );
-                }
+        if self.level.includes(MetadataLevel::Task)
+            && let Some(data) = self.task_data
+        {
+            labels.insert("__meta_ecs_task_arn".to_string(), data.arn);
+            labels.insert(
+                "__meta_ecs_task_definition".to_string(),
+                data.definition_arn,
+            );
+            labels.insert("__meta_ecs_task_family".to_string(), data.family);
+            labels.insert("__meta_ecs_task_version".to_string(), data.version);
+            labels.insert("__meta_ecs_launch_type".to_string(), data.launch_type);
+            if let Some(group) = data.group {
+                labels.insert("__meta_ecs_task_group".to_string(), group);
+            }
+            if let Some(v) = data.desired_status {
+                labels.insert("__meta_ecs_desired_status".to_string(), v);
+            }
+            if let Some(v) = data.last_status {
+                labels.insert("__meta_ecs_last_status".to_string(), v);
+            }
+            if let Some(v) = data.health_status {
+                labels.insert("__meta_ecs_health_status".to_string(), v);
+            }
+            if let Some(v) = data.platform_family {
+                labels.insert("__meta_ecs_platform_family".to_string(), v);
+            }
+            if let Some(v) = data.platform_version {
+                labels.insert("__meta_ecs_platform_version".to_string(), v);
+            }
+            for (k, v) in data.tags {
+                labels.insert(format!("__meta_ecs_tag_task_{}", sanitize_tag_key(&k)), v);
             }
         }
 
         // Service level
-        if self.level.includes(MetadataLevel::Service) {
-            if let Some(data) = self.service_data {
-                labels.insert("__meta_ecs_service_name".to_string(), data.name);
-                labels.insert("__meta_ecs_service_arn".to_string(), data.arn);
-                labels.insert("__meta_ecs_service_status".to_string(), data.status);
-                labels.insert("__meta_ecs_desired_count".to_string(), data.desired_count.to_string());
-                labels.insert("__meta_ecs_running_count".to_string(), data.running_count.to_string());
-                for (k, v) in data.tags {
-                    labels.insert(
-                        format!("__meta_ecs_tag_service_{}", sanitize_tag_key(&k)),
-                        v,
-                    );
-                }
+        if self.level.includes(MetadataLevel::Service)
+            && let Some(data) = self.service_data
+        {
+            labels.insert("__meta_ecs_service_name".to_string(), data.name);
+            labels.insert("__meta_ecs_service_arn".to_string(), data.arn);
+            labels.insert("__meta_ecs_service_status".to_string(), data.status);
+            labels.insert(
+                "__meta_ecs_desired_count".to_string(),
+                data.desired_count.to_string(),
+            );
+            labels.insert(
+                "__meta_ecs_running_count".to_string(),
+                data.running_count.to_string(),
+            );
+            for (k, v) in data.tags {
+                labels.insert(
+                    format!("__meta_ecs_tag_service_{}", sanitize_tag_key(&k)),
+                    v,
+                );
             }
         }
 
         // Cluster level
-        if self.level.includes(MetadataLevel::Cluster) {
-            if let Some(data) = self.cluster_data {
-                labels.insert("__meta_ecs_cluster_name".to_string(), data.name);
-                labels.insert("__meta_ecs_cluster_arn".to_string(), data.arn);
-                for (k, v) in data.tags {
-                    labels.insert(
-                        format!("__meta_ecs_tag_cluster_{}", sanitize_tag_key(&k)),
-                        v,
-                    );
-                }
+        if self.level.includes(MetadataLevel::Cluster)
+            && let Some(data) = self.cluster_data
+        {
+            labels.insert("__meta_ecs_cluster_name".to_string(), data.name);
+            labels.insert("__meta_ecs_cluster_arn".to_string(), data.arn);
+            for (k, v) in data.tags {
+                labels.insert(
+                    format!("__meta_ecs_tag_cluster_{}", sanitize_tag_key(&k)),
+                    v,
+                );
             }
         }
 
@@ -325,9 +340,15 @@ impl LabelBuilder {
                 }
             }
             if let Some(data) = self.ec2_data {
-                labels.insert("__meta_ecs_container_instance_arn".to_string(), data.container_instance_arn);
+                labels.insert(
+                    "__meta_ecs_container_instance_arn".to_string(),
+                    data.container_instance_arn,
+                );
                 labels.insert("__meta_ecs_ec2_instance_id".to_string(), data.instance_id);
-                labels.insert("__meta_ecs_ec2_instance_private_ip".to_string(), data.private_ip.clone());
+                labels.insert(
+                    "__meta_ecs_ec2_instance_private_ip".to_string(),
+                    data.private_ip.clone(),
+                );
                 // __meta_ecs_public_ip = EC2 public IP for bridge/host mode
                 if let Some(ref ip) = data.public_ip {
                     labels.insert("__meta_ecs_public_ip".to_string(), ip.clone());
@@ -337,10 +358,7 @@ impl LabelBuilder {
                     labels.insert("__meta_ecs_ec2_instance_type".to_string(), v);
                 }
                 for (k, v) in data.tags {
-                    labels.insert(
-                        format!("__meta_ecs_tag_ec2_{}", sanitize_tag_key(&k)),
-                        v,
-                    );
+                    labels.insert(format!("__meta_ecs_tag_ec2_{}", sanitize_tag_key(&k)), v);
                 }
             }
         }
@@ -383,12 +401,24 @@ mod tests {
 
     #[test]
     fn test_network_labels() {
-        let builder = LabelBuilder::new(MetadataLevel::Container)
-            .with_network("10.0.1.5", "bridge", Some("subnet-abc123"));
+        let builder = LabelBuilder::new(MetadataLevel::Container).with_network(
+            "10.0.1.5",
+            "bridge",
+            Some("subnet-abc123"),
+        );
         let labels = builder.build();
-        assert_eq!(labels.get("__meta_ecs_ip_address").map(String::as_str), Some("10.0.1.5"));
-        assert_eq!(labels.get("__meta_ecs_network_mode").map(String::as_str), Some("bridge"));
-        assert_eq!(labels.get("__meta_ecs_subnet_id").map(String::as_str), Some("subnet-abc123"));
+        assert_eq!(
+            labels.get("__meta_ecs_ip_address").map(String::as_str),
+            Some("10.0.1.5")
+        );
+        assert_eq!(
+            labels.get("__meta_ecs_network_mode").map(String::as_str),
+            Some("bridge")
+        );
+        assert_eq!(
+            labels.get("__meta_ecs_subnet_id").map(String::as_str),
+            Some("subnet-abc123")
+        );
     }
 
     #[test]
@@ -406,11 +436,30 @@ mod tests {
             ec2_tags,
         );
         let labels = builder.build();
-        assert_eq!(labels.get("__meta_ecs_ec2_instance_type").map(String::as_str), Some("t3.medium"));
-        assert_eq!(labels.get("__meta_ecs_tag_ec2_name").map(String::as_str), Some("my-node"));
-        assert_eq!(labels.get("__meta_ecs_tag_ec2_env").map(String::as_str), Some("prod"));
-        assert_eq!(labels.get("__meta_ecs_public_ip").map(String::as_str), Some("1.2.3.4"));
-        assert_eq!(labels.get("__meta_ecs_ec2_instance_public_ip").map(String::as_str), Some("1.2.3.4"));
+        assert_eq!(
+            labels
+                .get("__meta_ecs_ec2_instance_type")
+                .map(String::as_str),
+            Some("t3.medium")
+        );
+        assert_eq!(
+            labels.get("__meta_ecs_tag_ec2_name").map(String::as_str),
+            Some("my-node")
+        );
+        assert_eq!(
+            labels.get("__meta_ecs_tag_ec2_env").map(String::as_str),
+            Some("prod")
+        );
+        assert_eq!(
+            labels.get("__meta_ecs_public_ip").map(String::as_str),
+            Some("1.2.3.4")
+        );
+        assert_eq!(
+            labels
+                .get("__meta_ecs_ec2_instance_public_ip")
+                .map(String::as_str),
+            Some("1.2.3.4")
+        );
     }
 
     #[test]
@@ -484,7 +533,10 @@ mod tests {
     fn test_parse_prometheus_labels_custom() {
         let mut labels = HashMap::new();
         labels.insert("prometheus.io/scheme".to_string(), "https".to_string());
-        labels.insert("prometheus.io/path".to_string(), "/custom/metrics".to_string());
+        labels.insert(
+            "prometheus.io/path".to_string(),
+            "/custom/metrics".to_string(),
+        );
 
         let (scheme, path) = parse_prometheus_labels(Some(&labels));
         assert_eq!(scheme, "https");
@@ -526,7 +578,9 @@ mod tests {
             .with_aws("eu-west-1", "999999999999", Some("eu-west-1a"))
             .build();
         assert_eq!(
-            labels.get("__meta_ecs_availability_zone").map(String::as_str),
+            labels
+                .get("__meta_ecs_availability_zone")
+                .map(String::as_str),
             Some("eu-west-1a")
         );
     }

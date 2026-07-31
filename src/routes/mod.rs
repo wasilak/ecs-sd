@@ -4,7 +4,7 @@ pub mod metrics;
 pub mod proxy;
 pub mod sd;
 
-use axum::{middleware, Router};
+use axum::{Router, middleware};
 
 use crate::state::AppState;
 

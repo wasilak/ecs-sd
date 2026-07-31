@@ -2,20 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum MetadataLevel {
     Container,
+    #[default]
     Task,
     Service,
     Cluster,
     Aws,
-}
-
-impl Default for MetadataLevel {
-    fn default() -> Self {
-        MetadataLevel::Task
-    }
 }
 
 impl FromStr for MetadataLevel {
@@ -53,17 +50,20 @@ impl MetadataLevel {
     /// e.g., Aws.includes(Task) == true, Task.includes(Aws) == false
     pub fn includes(&self, other: MetadataLevel) -> bool {
         use MetadataLevel::*;
-        match (*self, other) {
-            (Aws, _) => true,
-            (Cluster, Container)
-            | (Cluster, Task)
-            | (Cluster, Service)
-            | (Cluster, Cluster) => true,
-            (Service, Container) | (Service, Task) | (Service, Service) => true,
-            (Task, Container) | (Task, Task) => true,
-            (Container, Container) => true,
-            _ => false,
-        }
+        matches!(
+            (*self, other),
+            (Aws, _)
+                | (Cluster, Container)
+                | (Cluster, Task)
+                | (Cluster, Service)
+                | (Cluster, Cluster)
+                | (Service, Container)
+                | (Service, Task)
+                | (Service, Service)
+                | (Task, Container)
+                | (Task, Task)
+                | (Container, Container)
+        )
     }
 }
 
@@ -78,9 +78,18 @@ mod tests {
 
     #[test]
     fn test_from_str_case_insensitive() {
-        assert_eq!("container".parse::<MetadataLevel>().unwrap(), MetadataLevel::Container);
-        assert_eq!("CONTAINER".parse::<MetadataLevel>().unwrap(), MetadataLevel::Container);
-        assert_eq!("Container".parse::<MetadataLevel>().unwrap(), MetadataLevel::Container);
+        assert_eq!(
+            "container".parse::<MetadataLevel>().unwrap(),
+            MetadataLevel::Container
+        );
+        assert_eq!(
+            "CONTAINER".parse::<MetadataLevel>().unwrap(),
+            MetadataLevel::Container
+        );
+        assert_eq!(
+            "Container".parse::<MetadataLevel>().unwrap(),
+            MetadataLevel::Container
+        );
     }
 
     #[test]

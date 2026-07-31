@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use chitchat::transport::ChannelTransport;
-use chitchat::{spawn_chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig};
+use chitchat::{ChitchatConfig, ChitchatId, FailureDetectorConfig, spawn_chitchat};
 
 use crate::cluster::ClusterState;
 use crate::config::{ClusterMode, Config};
@@ -248,7 +248,8 @@ async fn routing_table_gossips_via_routing_key() {
     assert!(node_a.is_leader().await, "node-a should be the leader");
 
     // Leader publishes routing table
-    let routing_json = r#"[{"route_id":"550e8400-e29b-41d4-a716-446655440000","address":"10.0.0.1:8080"}]"#;
+    let routing_json =
+        r#"[{"route_id":"550e8400-e29b-41d4-a716-446655440000","address":"10.0.0.1:8080"}]"#;
     node_a.publish_routing(routing_json).await;
 
     // Wait for propagation
@@ -312,8 +313,8 @@ fn standalone_config_yields_no_cluster_state() {
 // Unit Tests (from original inline tests module)
 // ============================================================================
 
-use crate::cluster::elect_leader;
 use crate::cluster::GossipProxyTarget;
+use crate::cluster::elect_leader;
 
 #[test]
 fn leader_is_min_node_id() {
@@ -336,10 +337,7 @@ fn empty_cluster_has_no_leader() {
 #[test]
 fn gossip_proxy_target_round_trips_json() {
     let mut labels = std::collections::HashMap::new();
-    labels.insert(
-        "__meta_ecs_task_family".to_string(),
-        "o11y-bot".to_string(),
-    );
+    labels.insert("__meta_ecs_task_family".to_string(), "o11y-bot".to_string());
     let original = GossipProxyTarget {
         route_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
         address: "10.0.0.1:8080".to_string(),
