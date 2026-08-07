@@ -12,7 +12,7 @@ aws-sdk-ecs = { version = "=1.137.0", default-features = false, features = [
   "rustls",
   "rt-tokio",
 ] }
-aws-sdk-ec2 = { version = "=1.244.0", default-features = false, features = [
+aws-sdk-ec2 = { version = "=1.246.0", default-features = false, features = [
   "rustls",
   "rt-tokio",
 ] }
@@ -47,5 +47,5 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 [dev-dependencies]
 aws-smithy-mocks = "0.3.0"
 aws-sdk-ecs = { version = "=1.137.0", features = ["test-util"] }
-aws-sdk-ec2 = { version = "=1.244.0", features = ["test-util"] }
+aws-sdk-ec2 = { version = "=1.246.0", features = ["test-util"] }
 aws-sdk-sts = { version = "1.103", features = ["test-util"] }
