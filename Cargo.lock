@@ -245,9 +245,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ecs"
-version = "1.140.0"
+version = "1.141.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793c958a6a763b678dd8f99d2be4801a42b1739163761d855c2b42c6056821c3"
+checksum = "0b5cd3f904f2490eee61a66b34842c184d753ae5d755999e78aa7e06eea855f2"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
