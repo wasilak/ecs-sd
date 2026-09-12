@@ -39,7 +39,7 @@ reqwest = { version = "0.13", default-features = false, features = [
   "stream",
 ] }
 uuid = { version = "1", features = ["v5"] }
-chitchat = "0.11.1"
+chitchat = "0.13.0"
 tokio-stream = { version = "0.1", features = ["sync"] }
 utoipa = "5.5"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
