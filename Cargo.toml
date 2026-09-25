@@ -41,8 +41,8 @@ reqwest = { version = "0.13", default-features = false, features = [
 uuid = { version = "1", features = ["v5"] }
 chitchat = "0.11.1"
 tokio-stream = { version = "0.1", features = ["sync"] }
-utoipa = "5.5"
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa = "6.0"
+utoipa-swagger-ui = { version = "10", features = ["axum"] }
 
 [dev-dependencies]
 aws-smithy-mocks = "0.3.0"
